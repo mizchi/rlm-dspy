@@ -15,4 +15,7 @@ check:
 eval *args:
   pnpm node scripts/eval.ts {{args}}
 
+eval-ablation *args:
+  pnpm node scripts/eval_ablation.ts {{args}}
+
 ci: test check

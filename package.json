@@ -9,8 +9,12 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "tsc --noEmit",
-    "eval": "node scripts/eval.ts --provider mock --cases eval/cases.sample.jsonl",
-    "eval:openai": "node scripts/eval.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini"
+    "eval": "node scripts/eval.ts --provider mock --cases eval/cases.sample.jsonl --profile hybrid",
+    "eval:pure": "node scripts/eval.ts --provider mock --cases eval/cases.sample.jsonl --profile pure",
+    "eval:openai": "node scripts/eval.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profile hybrid",
+    "eval:openai:pure": "node scripts/eval.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profile pure",
+    "eval:ablation": "node scripts/eval_ablation.ts --provider mock --cases eval/cases.sample.jsonl --profiles pure,hybrid --runs 3",
+    "eval:ablation:openai": "node scripts/eval_ablation.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profiles pure,hybrid --runs 2"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

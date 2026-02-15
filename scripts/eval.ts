@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { evaluateCases } from '../src/eval/evaluate.ts';
 import { parseEvalJSONL } from '../src/eval/jsonl.ts';
+import { buildProfileRLMOptions, parseRLMProfile } from '../src/eval/profile.ts';
 import type { EvalCase } from '../src/eval/types.ts';
 import { MockLLMProvider } from '../src/llm/MockLLMProvider.ts';
 import { OpenAIProvider } from '../src/llm/OpenAIProvider.ts';
@@ -11,6 +12,7 @@ interface CLIArgs {
   casesPath: string;
   model: string;
   outPath?: string;
+  profile: 'pure' | 'hybrid';
 }
 
 const main = async (): Promise<void> => {
@@ -19,24 +21,7 @@ const main = async (): Promise<void> => {
 
   const report = await evaluateCases(cases, {
     providerFactory: (mode, evalCase) => makeProvider(args, mode, evalCase),
-    rlmOptions: {
-      llm: {
-        temperature: 0,
-      },
-      enableHeuristicPostprocess: true,
-      enableEarlyStopHeuristic: true,
-      maxConsecutiveErrorsForEarlyStop: 2,
-      requirePromptReadBeforeFinalize: true,
-      budget: {
-        maxSteps: 6,
-        maxSubCalls: 16,
-        maxDepth: 4,
-      },
-      subBudget: {
-        maxSteps: 3,
-        maxSubCalls: 0,
-      },
-    },
+    rlmOptions: buildProfileRLMOptions(args.profile),
     baselineLLMOptions: {
       temperature: 0,
     },
@@ -88,6 +73,7 @@ const parseArgs = (argv: string[]): CLIArgs => {
     casesPath: kv.get('cases') ?? 'eval/cases.sample.jsonl',
     model: kv.get('model') ?? 'gpt-4.1-mini',
     outPath: kv.get('out'),
+    profile: parseRLMProfile(kv.get('profile')),
   };
 };
 

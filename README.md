@@ -72,6 +72,7 @@ pnpm check
 
 ```bash
 pnpm eval
+pnpm eval:pure
 ```
 
 ### 2) OpenAI で実評価
@@ -79,6 +80,7 @@ pnpm eval
 ```bash
 export OPENAI_API_KEY=...
 pnpm eval:openai
+pnpm eval:openai:pure
 ```
 
 詳細レポート保存:
@@ -88,8 +90,19 @@ pnpm node scripts/eval.ts \
   --provider openai \
   --model gpt-4.1-mini \
   --cases eval/cases.sample.jsonl \
+  --profile hybrid \
   --out eval/report.json
 ```
+
+### 3) アブレーション（pure vs hybrid）
+
+```bash
+pnpm eval:ablation
+pnpm eval:ablation:openai
+```
+
+- `pure`: ヒューリスティック無し
+- `hybrid`: 後処理・早期終了ヒューリスティック有り
 
 ## ケース形式（JSONL）
 

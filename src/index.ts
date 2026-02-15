@@ -39,3 +39,8 @@ export type {
 export { parseEvalJSONL } from './eval/jsonl.ts';
 export { scoreAnswer } from './eval/scoring.ts';
 export { evaluateCases } from './eval/evaluate.ts';
+export {
+  buildProfileRLMOptions,
+  parseRLMProfile,
+  type RLMProfile,
+} from './eval/profile.ts';
