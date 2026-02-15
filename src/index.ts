@@ -15,6 +15,13 @@ export {
   type BudgetState,
 } from './budget/Budget.ts';
 
+export {
+  InMemoryDocStore,
+  MCPDocStore,
+  type DocStore,
+  type MCPDocStoreClient,
+} from './doc/DocStore.ts';
+
 export type {
   RLMEnv,
   RLMOptions,

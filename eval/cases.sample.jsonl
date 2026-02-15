@@ -6,3 +6,9 @@
 
 # contains metric example
 {"id":"contains-1","prompt":"alpha beta gamma","query":"文章に含まれる単語を一つ答えて","expected":"beta","metric":"contains","tags":["contains"]}
+
+# markdown section extraction
+{"id":"section-1","prompt":"# Intro\nhello\n\n## Data\nalpha\nbeta\n\n# End\ndone","query":"Data セクション本文を返して","expected":"alpha\nbeta","metric":"exact","tags":["markdown","structured"]}
+
+# csv filter + projection
+{"id":"csv-filter-1","prompt":"name,score,team\nalice,3,a\nbob,5,b\nalice,7,c","query":"name が alice の score を | 連結で返して","expected":"3|7","metric":"exact","tags":["csv","structured"]}

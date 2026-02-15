@@ -16,16 +16,18 @@ import { parseOneJSON } from '../util/json.ts';
 import { hashString } from '../util/hash.ts';
 import { createSubRLMRunner } from './subRLM.ts';
 import type { RLMEnv, RLMOptions, RLMResultPack, SubRLMOptions } from './types.ts';
+import { InMemoryDocStore } from '../doc/DocStore.ts';
 
 const DEFAULT_SYSTEM_PROMPT = [
   'You are an RLM root controller.',
   'Output exactly one JSON object and nothing else.',
-  'Allowed ops: prompt_meta, slice_prompt, find, chunk_newlines, sum_csv_column, pick_word, sub_map, reduce_join, set, finalize.',
+  'Allowed ops: prompt_meta, doc_parse, doc_select_section, doc_table_sum, doc_select_rows, doc_project_columns, slice_prompt, find, chunk_newlines, sum_csv_column, pick_word, sub_map, reduce_join, set, finalize.',
   'Required fields by op must be present and correctly typed.',
   'Do not invent fields like env, action, tool, code.',
   'To finish, first put final text in scratch via set, then call {"op":"finalize","from":"<key>"} exactly.',
   'env.prompt body is hidden; read via DSL ops only.',
   'If the task asks sum/合計 of CSV numeric column, prefer sum_csv_column then finalize.',
+  'If the task asks CSV row filtering, use doc_select_rows with comparator/value, then doc_project_columns.',
   'If the task asks 文中の単語を一つ, prefer pick_word(index=1) then finalize.',
   'If the task asks extract TOKEN=value style text, prefer find + slice_prompt + finalize.',
   'Few-shot example A (extract token):',
@@ -38,6 +40,16 @@ const DEFAULT_SYSTEM_PROMPT = [
   'Few-shot example C (pick one word):',
   '1) {"op":"pick_word","index":1,"out":"picked"}',
   '2) {"op":"finalize","from":"picked"}',
+  'Few-shot example D (markdown section extraction):',
+  '1) {"op":"doc_parse","format":"markdown","out":"doc"}',
+  '2) {"op":"doc_select_section","in":"doc","title":"Data","out":"answer"}',
+  '3) {"op":"finalize","from":"answer"}',
+  'Few-shot example E (csv filter + project):',
+  '1) {"op":"doc_parse","format":"csv","out":"doc"}',
+  '2) {"op":"doc_select_rows","in":"doc","column":"name","equals":"alice","out":"rows"}',
+  '3) {"op":"doc_project_columns","in":"rows","columns":["score"],"out":"scores"}',
+  '4) {"op":"reduce_join","in":"scores","sep":"|","out":"answer"}',
+  '5) {"op":"finalize","from":"answer"}',
 ].join(' ');
 
 const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
@@ -54,6 +66,11 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
           type: 'string',
           enum: [
             'prompt_meta',
+            'doc_parse',
+            'doc_select_section',
+            'doc_table_sum',
+            'doc_select_rows',
+            'doc_project_columns',
             'slice_prompt',
             'find',
             'chunk_newlines',
@@ -68,6 +85,25 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
         start: { type: ['number', 'string', 'null'] },
         end: { type: ['number', 'string', 'null'] },
         out: { type: ['string', 'null'] },
+        format: { type: ['string', 'null'] },
+        title: { type: ['string', 'null'] },
+        columns: {
+          type: ['array', 'null'],
+          items: {
+            type: ['string', 'number'],
+          },
+        },
+        equals: {
+          anyOf: [
+            { type: 'string' },
+            { type: 'number' },
+            { type: 'boolean' },
+            { type: 'null' },
+          ],
+        },
+        comparator: { type: ['string', 'null'] },
+        includeHeader: { type: ['boolean', 'null'] },
+        separator: { type: ['string', 'null'] },
         needle: { type: ['string', 'null'] },
         from: { type: ['number', 'string', 'null'] },
         maxLines: { type: ['number', 'string', 'null'] },
@@ -135,6 +171,7 @@ const runInternal = async (args: RunInternalArgs): Promise<RLMResultPack> => {
     depth,
     budgetOverride,
     sharedCache: runtime.sharedCache,
+    docStoreFactory: runtime.opts.docStoreFactory,
   });
 
   const subRLM = createSubRLMRunner({
@@ -260,16 +297,25 @@ const initEnv = (args: {
   depth: number;
   budgetOverride: Partial<BudgetState> | undefined;
   sharedCache: Map<string, string>;
+  docStoreFactory: RLMOptions['docStoreFactory'];
 }): RLMEnv => {
+  const promptId = hashString(args.prompt);
   const budget = defaultBudget({
     ...(args.budgetOverride ?? {}),
     depth: args.depth,
     startedAt: args.budgetOverride?.startedAt ?? Date.now(),
   });
+  const docStore =
+    args.docStoreFactory?.({
+      prompt: args.prompt,
+      promptId,
+      depth: args.depth,
+    }) ?? InMemoryDocStore.fromSingle(promptId, args.prompt);
 
   return {
     prompt: args.prompt,
-    promptId: hashString(args.prompt),
+    promptId,
+    docStore,
     scratch: {},
     cache: args.sharedCache,
     budget,
@@ -311,6 +357,28 @@ const buildInitialMetadata = (
     meta.task = opts.task;
   }
   meta.hints = {
+    docParse: { op: 'doc_parse', format: 'auto', out: 'doc' },
+    docSelectSection: {
+      op: 'doc_select_section',
+      in: 'doc',
+      title: 'Data',
+      out: 'answer',
+    },
+    docTableSum: { op: 'doc_table_sum', in: 'doc', column: 'score', out: 'total' },
+    docSelectRows: {
+      op: 'doc_select_rows',
+      in: 'doc',
+      column: 'name',
+      comparator: 'eq',
+      value: 'alice',
+      out: 'rows',
+    },
+    docProjectColumns: {
+      op: 'doc_project_columns',
+      in: 'rows',
+      columns: ['score'],
+      out: 'lines',
+    },
     sumCsv: { op: 'sum_csv_column', column: 1, delimiter: ',', out: 'total' },
     pickWord: { op: 'pick_word', index: 1, out: 'picked' },
     extractToken: { op: 'find', needle: 'TOKEN=', out: 'hits' },
@@ -370,6 +438,76 @@ const coerceDSL = (raw: unknown): DSL => {
   switch (op) {
     case 'prompt_meta':
       return { op };
+
+    case 'doc_parse': {
+      const format =
+        row.format !== undefined && row.format !== null
+          ? asDocParseFormat(row.format, 'doc_parse.format')
+          : undefined;
+      return {
+        op,
+        ...(format !== undefined ? { format } : {}),
+        ...(row.delimiter !== undefined && row.delimiter !== null
+          ? { delimiter: asString(row.delimiter, 'doc_parse.delimiter') }
+          : {}),
+        out: asString(row.out ?? 'doc', 'doc_parse.out'),
+      };
+    }
+
+    case 'doc_select_section':
+      return {
+        op,
+        in: asString(row.in ?? 'doc', 'doc_select_section.in'),
+        title: asString(row.title ?? row.section ?? 'Introduction', 'doc_select_section.title'),
+        out: asString(row.out ?? 'answer', 'doc_select_section.out'),
+      };
+
+    case 'doc_table_sum':
+      return {
+        op,
+        in: asString(row.in ?? 'doc', 'doc_table_sum.in'),
+        column: asStringOrNumber(row.column ?? 1, 'doc_table_sum.column'),
+        out: asString(row.out ?? 'total', 'doc_table_sum.out'),
+      };
+
+    case 'doc_select_rows':
+      return {
+        op,
+        in: asString(row.in ?? 'doc', 'doc_select_rows.in'),
+        column: asStringOrNumber(
+          row.column ?? row.whereColumn ?? 0,
+          'doc_select_rows.column',
+        ),
+        ...(row.comparator !== undefined && row.comparator !== null
+          ? { comparator: asCsvComparator(row.comparator, 'doc_select_rows.comparator') }
+          : row.operator !== undefined && row.operator !== null
+            ? { comparator: asCsvComparator(row.operator, 'doc_select_rows.operator') }
+            : {}),
+        value: asScalar(
+          row.equals ?? row.value ?? row.match ?? '',
+          'doc_select_rows.value',
+        ),
+        out: asString(row.out ?? 'rows', 'doc_select_rows.out'),
+      };
+
+    case 'doc_project_columns':
+      return {
+        op,
+        in: asString(row.in ?? 'doc', 'doc_project_columns.in'),
+        columns: asColumnList(
+          row.columns ?? row.cols ?? [0],
+          'doc_project_columns.columns',
+        ),
+        out: asString(row.out ?? 'lines', 'doc_project_columns.out'),
+        ...(row.separator !== undefined && row.separator !== null
+          ? { separator: asString(row.separator, 'doc_project_columns.separator') }
+          : row.sep !== undefined && row.sep !== null
+            ? { separator: asString(row.sep, 'doc_project_columns.sep') }
+            : {}),
+        ...(row.includeHeader !== undefined && row.includeHeader !== null
+          ? { includeHeader: asBoolean(row.includeHeader, 'doc_project_columns.includeHeader') }
+          : {}),
+      };
 
     case 'slice_prompt':
       return {
@@ -478,6 +616,88 @@ const asNumber = (input: unknown, label: string): number => {
     }
   }
   throw new Error(`${label} must be number`);
+};
+
+const asStringOrNumber = (
+  input: unknown,
+  label: string,
+): string | number => {
+  if (typeof input === 'string' && input.trim() !== '') {
+    return input;
+  }
+  if (typeof input === 'number' && Number.isFinite(input)) {
+    return input;
+  }
+  throw new Error(`${label} must be string or number`);
+};
+
+const asDocParseFormat = (
+  input: unknown,
+  label: string,
+): 'auto' | 'text' | 'markdown' | 'csv' => {
+  const value = asString(input, label);
+  if (value === 'auto' || value === 'text' || value === 'markdown' || value === 'csv') {
+    return value;
+  }
+  throw new Error(`${label} must be auto|text|markdown|csv`);
+};
+
+const asScalar = (
+  input: unknown,
+  label: string,
+): string | number | boolean | null => {
+  if (input === null) {
+    return null;
+  }
+  if (typeof input === 'string' || typeof input === 'number' || typeof input === 'boolean') {
+    return input;
+  }
+  throw new Error(`${label} must be string|number|boolean|null`);
+};
+
+const asBoolean = (input: unknown, label: string): boolean => {
+  if (typeof input === 'boolean') {
+    return input;
+  }
+  if (typeof input === 'string') {
+    if (input === 'true') {
+      return true;
+    }
+    if (input === 'false') {
+      return false;
+    }
+  }
+  throw new Error(`${label} must be boolean`);
+};
+
+const asColumnList = (
+  input: unknown,
+  label: string,
+): (string | number)[] => {
+  if (!Array.isArray(input) || input.length === 0) {
+    throw new Error(`${label} must be non-empty array`);
+  }
+  return input.map((item, index) =>
+    asStringOrNumber(item, `${label}[${index}]`),
+  );
+};
+
+const asCsvComparator = (
+  input: unknown,
+  label: string,
+): 'eq' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte' => {
+  const value = asString(input, label);
+  if (
+    value === 'eq' ||
+    value === 'contains' ||
+    value === 'gt' ||
+    value === 'gte' ||
+    value === 'lt' ||
+    value === 'lte'
+  ) {
+    return value;
+  }
+  throw new Error(`${label} must be eq|contains|gt|gte|lt|lte`);
 };
 
 const maybeAutoFinalizeFromScratch = (

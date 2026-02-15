@@ -11,8 +11,9 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
 ## 現在の設計
 
 - `runRLM` で Root ループを実行
-- `DSLRepl` が `slice/find/chunk/sub_map/reduce_join/finalize` などを実行
+- `DSLRepl` が `doc_parse/doc_select_section/doc_table_sum/doc_select_rows/doc_project_columns` と `slice/find/chunk/sub_map/reduce_join/finalize` を実行
 - `LLMProvider` 抽象 + `OpenAIProvider` / `MockLLMProvider`
+- 文書I/Oは `DocStore` 抽象で差し替え可能（`InMemoryDocStore` / `MCPDocStore`）
 - `response_format (json_schema)` を利用し、DSL 出力を強制
 - 不正 DSL は `coerce` とエラーメタで回復
 - 早期終了ヒューリスティック（評価時有効）
@@ -21,6 +22,7 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
 
 - DSL coercion（軽微な非準拠 JSON を補正）
 - `sum_csv_column` / `pick_word` など検証可能 op の追加
+- `StructuredDocument` 層（Markdown/CSV/Text）を導入し、文書を構造化して再利用
 - `enableHeuristicPostprocess`（TOKEN 抽出 / CSV 合計 / 単語抽出）
 - `enableEarlyStopHeuristic`（不要ステップ削減）
 - OpenAI 呼び出しタイムアウト
@@ -49,7 +51,28 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
   - 構造化タスク（抽出・検索・集計）に強い
 - 注意点:
   - 現在は Pure RLM ではなく `RLM + task-specific ops + heuristics` のハイブリッド
-  - 一般生成タスクへの直接一般化はまだ弱い
+- 一般生成タスクへの直接一般化はまだ弱い
+
+## 構造化文書IR（追加）
+
+- `doc_parse`:
+  - `env.prompt` を `StructuredDocument`（`markdown` / `csv` / `text`）として scratch に載せる
+- `doc_select_section`:
+  - Markdown セクションをタイトルで抽出
+- `doc_table_sum`:
+  - CSV の列（index または header 名）を合計
+- `doc_select_rows`:
+  - CSV の条件一致行だけを絞り込む（列名/列index対応、`eq/contains/gt/gte/lt/lte`）
+- `doc_project_columns`:
+  - CSV から指定列だけを射影し、配列化して後段 (`reduce_join` など) で利用
+
+これにより、`slice/find` の都度全文スキャンではなく、1回の parse 後に構造アクセスを繰り返せる。
+
+## DocStore 抽象
+
+- `RLMOptions.docStoreFactory` で文書バックエンドを差し替え可能
+- デフォルトは `InMemoryDocStore`
+- MCP 経由で外部文書を読む場合は `MCPDocStore` 実装を利用
 
 ## 一般化可能性
 

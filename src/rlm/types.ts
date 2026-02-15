@@ -1,10 +1,18 @@
 import type { BudgetState } from '../budget/Budget.ts';
 import type { LLMCompleteOptions, LLMProvider } from '../llm/LLMProvider.ts';
 import type { TraceEvent } from '../trace/Trace.ts';
+import type { DocStore } from '../doc/DocStore.ts';
+
+export interface DocStoreFactoryInput {
+  prompt: string;
+  promptId: string;
+  depth: number;
+}
 
 export interface RLMEnv {
   prompt: string;
   promptId: string;
+  docStore: DocStore;
   scratch: Record<string, unknown>;
   cache: Map<string, string>;
   final?: string;
@@ -23,6 +31,7 @@ export interface RLMOptions {
   enableHeuristicPostprocess?: boolean;
   enableEarlyStopHeuristic?: boolean;
   maxConsecutiveErrorsForEarlyStop?: number;
+  docStoreFactory?: (input: DocStoreFactoryInput) => DocStore;
 }
 
 export interface SubRLMOptions {

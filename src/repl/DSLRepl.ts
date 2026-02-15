@@ -2,6 +2,14 @@ import { consumePromptChars } from '../budget/Budget.ts';
 import { makeStdoutMeta } from '../trace/Trace.ts';
 import type { DSL } from './DSL.ts';
 import type { RLMEnv, SubRLMFn } from '../rlm/types.ts';
+import {
+  filterCsvRows,
+  findMarkdownSection,
+  isStructuredDocument,
+  parseStructuredDocument,
+  projectCsvColumns,
+  resolveCsvColumnIndex,
+} from '../doc/StructuredDocument.ts';
 
 interface DSLReplHooks {
   subRLM: SubRLMFn;
@@ -17,6 +25,7 @@ export class DSLRepl {
   private readonly hooks: DSLReplHooks;
   private readonly metaPreviewChars: number;
   private readonly requirePromptReadBeforeFinalize: boolean;
+  private promptCache: string | undefined;
 
   constructor(env: RLMEnv, hooks: DSLReplHooks, options: DSLReplOptions = {}) {
     this.env = env;
@@ -24,6 +33,22 @@ export class DSLRepl {
     this.metaPreviewChars = options.metaPreviewChars ?? 200;
     this.requirePromptReadBeforeFinalize =
       options.requirePromptReadBeforeFinalize ?? false;
+  }
+
+  private async readPromptAll(): Promise<string> {
+    if (this.promptCache !== undefined) {
+      return this.promptCache;
+    }
+    const prompt = await this.env.docStore.readAll(this.env.promptId);
+    this.promptCache = prompt;
+    return prompt;
+  }
+
+  private async readPromptSlice(start: number, end: number): Promise<string> {
+    if (this.promptCache !== undefined) {
+      return this.promptCache.slice(start, end);
+    }
+    return this.env.docStore.readSlice(this.env.promptId, start, end);
   }
 
   async exec(dsl: DSL, step: number): Promise<string> {
@@ -46,9 +71,205 @@ export class DSLRepl {
   private async execInner(dsl: DSL): Promise<string> {
     switch (dsl.op) {
       case 'prompt_meta': {
+        const prompt = await this.readPromptAll();
         return JSON.stringify({
           promptId: this.env.promptId,
-          length: this.env.prompt.length,
+          length: prompt.length,
+        });
+      }
+
+      case 'doc_parse': {
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('doc_parse.out must be non-empty string');
+        }
+        if (
+          dsl.format !== undefined &&
+          dsl.format !== 'auto' &&
+          dsl.format !== 'text' &&
+          dsl.format !== 'markdown' &&
+          dsl.format !== 'csv'
+        ) {
+          throw new Error('doc_parse.format must be auto|text|markdown|csv');
+        }
+        if (dsl.delimiter !== undefined && typeof dsl.delimiter !== 'string') {
+          throw new Error('doc_parse.delimiter must be string');
+        }
+
+        const prompt = await this.readPromptAll();
+        consumePromptChars(this.env.budget, prompt.length);
+        const doc = parseStructuredDocument(prompt, {
+          format: dsl.format ?? 'auto',
+          ...(dsl.delimiter !== undefined ? { delimiter: dsl.delimiter } : {}),
+        });
+        this.env.scratch[dsl.out] = doc;
+
+        return JSON.stringify({
+          out: dsl.out,
+          format: doc.format,
+          lineCount: doc.lineCount,
+          sectionCount: doc.format === 'markdown' ? doc.sections.length : undefined,
+          rowCount: doc.format === 'csv' ? doc.rows.length : undefined,
+        });
+      }
+
+      case 'doc_select_section': {
+        if (typeof dsl.in !== 'string' || dsl.in === '') {
+          throw new Error('doc_select_section.in must be non-empty string');
+        }
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('doc_select_section.out must be non-empty string');
+        }
+        if (typeof dsl.title !== 'string' || dsl.title === '') {
+          throw new Error('doc_select_section.title must be non-empty string');
+        }
+
+        const source = this.env.scratch[dsl.in];
+        if (!isStructuredDocument(source)) {
+          throw new Error(`scratch.${dsl.in} is not a structured document`);
+        }
+        if (source.format !== 'markdown') {
+          throw new Error(`scratch.${dsl.in} is not markdown document`);
+        }
+        const section = findMarkdownSection(source, dsl.title);
+        if (section === undefined) {
+          throw new Error(`markdown section not found: ${dsl.title}`);
+        }
+        this.env.scratch[dsl.out] = section.body;
+        return JSON.stringify({
+          out: dsl.out,
+          title: section.title,
+          level: section.level,
+          length: section.body.length,
+          preview: section.body.slice(0, 200),
+        });
+      }
+
+      case 'doc_table_sum': {
+        if (typeof dsl.in !== 'string' || dsl.in === '') {
+          throw new Error('doc_table_sum.in must be non-empty string');
+        }
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('doc_table_sum.out must be non-empty string');
+        }
+        if (typeof dsl.column !== 'number' && typeof dsl.column !== 'string') {
+          throw new Error('doc_table_sum.column must be number|string');
+        }
+
+        const source = this.env.scratch[dsl.in];
+        if (!isStructuredDocument(source)) {
+          throw new Error(`scratch.${dsl.in} is not a structured document`);
+        }
+        if (source.format !== 'csv') {
+          throw new Error(`scratch.${dsl.in} is not csv document`);
+        }
+
+        const columnIndex = resolveCsvColumnIndex(source, dsl.column);
+        let sum = 0;
+        let used = 0;
+        for (const row of source.rows) {
+          const raw = row[columnIndex];
+          if (raw === undefined || raw.trim() === '') {
+            continue;
+          }
+          const value = Number(raw);
+          if (!Number.isFinite(value)) {
+            continue;
+          }
+          sum += value;
+          used += 1;
+        }
+        this.env.scratch[dsl.out] = String(sum);
+        return JSON.stringify({
+          out: dsl.out,
+          sum,
+          used,
+          columnIndex,
+        });
+      }
+
+      case 'doc_select_rows': {
+        if (typeof dsl.in !== 'string' || dsl.in === '') {
+          throw new Error('doc_select_rows.in must be non-empty string');
+        }
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('doc_select_rows.out must be non-empty string');
+        }
+        if (typeof dsl.column !== 'number' && typeof dsl.column !== 'string') {
+          throw new Error('doc_select_rows.column must be number|string');
+        }
+        const comparator = normalizeCsvComparator(dsl.comparator);
+        const target = dsl.value ?? dsl.equals ?? null;
+        if (
+          target !== null &&
+          typeof target !== 'string' &&
+          typeof target !== 'number' &&
+          typeof target !== 'boolean'
+        ) {
+          throw new Error('doc_select_rows.value/equals must be scalar');
+        }
+
+        const source = this.env.scratch[dsl.in];
+        if (!isStructuredDocument(source)) {
+          throw new Error(`scratch.${dsl.in} is not a structured document`);
+        }
+        if (source.format !== 'csv') {
+          throw new Error(`scratch.${dsl.in} is not csv document`);
+        }
+        const columnIndex = resolveCsvColumnIndex(source, dsl.column);
+        const filtered = filterCsvRows(source, dsl.column, {
+          comparator,
+          value: target,
+        });
+        this.env.scratch[dsl.out] = filtered;
+        return JSON.stringify({
+          out: dsl.out,
+          rowCount: filtered.rows.length,
+          columnIndex,
+          comparator,
+          expected: target,
+        });
+      }
+
+      case 'doc_project_columns': {
+        if (typeof dsl.in !== 'string' || dsl.in === '') {
+          throw new Error('doc_project_columns.in must be non-empty string');
+        }
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('doc_project_columns.out must be non-empty string');
+        }
+        if (!Array.isArray(dsl.columns) || dsl.columns.length === 0) {
+          throw new Error('doc_project_columns.columns must be non-empty array');
+        }
+        if (dsl.separator !== undefined && typeof dsl.separator !== 'string') {
+          throw new Error('doc_project_columns.separator must be string');
+        }
+        if (
+          dsl.includeHeader !== undefined &&
+          typeof dsl.includeHeader !== 'boolean'
+        ) {
+          throw new Error('doc_project_columns.includeHeader must be boolean');
+        }
+
+        const source = this.env.scratch[dsl.in];
+        if (!isStructuredDocument(source)) {
+          throw new Error(`scratch.${dsl.in} is not a structured document`);
+        }
+        if (source.format !== 'csv') {
+          throw new Error(`scratch.${dsl.in} is not csv document`);
+        }
+
+        const separator = dsl.separator ?? ',';
+        const projected = projectCsvColumns(source, dsl.columns);
+        const lines = projected.rows.map((row) => row.join(separator));
+        if (dsl.includeHeader) {
+          lines.unshift(projected.headers.join(separator));
+        }
+        this.env.scratch[dsl.out] = lines;
+        return JSON.stringify({
+          out: dsl.out,
+          count: lines.length,
+          columns: projected.headers,
+          firstLine: lines[0] ?? '',
         });
       }
 
@@ -62,7 +283,7 @@ export class DSLRepl {
         const start = Math.max(0, dsl.start);
         const end = Math.max(start, dsl.end);
         consumePromptChars(this.env.budget, end - start);
-        const value = this.env.prompt.slice(start, end);
+        const value = await this.readPromptSlice(start, end);
         this.env.scratch[dsl.out] = value;
         return JSON.stringify({
           out: dsl.out,
@@ -78,12 +299,13 @@ export class DSLRepl {
         if (typeof dsl.out !== 'string' || dsl.out === '') {
           throw new Error('find.out must be non-empty string');
         }
-        consumePromptChars(this.env.budget, this.env.prompt.length);
+        const prompt = await this.readPromptAll();
+        consumePromptChars(this.env.budget, prompt.length);
         const from = Math.max(0, dsl.from ?? 0);
         const hits: number[] = [];
         let cursor = from;
-        while (cursor <= this.env.prompt.length) {
-          const idx = this.env.prompt.indexOf(dsl.needle, cursor);
+        while (cursor <= prompt.length) {
+          const idx = prompt.indexOf(dsl.needle, cursor);
           if (idx < 0) {
             break;
           }
@@ -105,8 +327,9 @@ export class DSLRepl {
         if (dsl.maxLines <= 0) {
           throw new Error('chunk_newlines.maxLines must be > 0');
         }
-        consumePromptChars(this.env.budget, this.env.prompt.length);
-        const lines = this.env.prompt.split(/\r?\n/u);
+        const prompt = await this.readPromptAll();
+        consumePromptChars(this.env.budget, prompt.length);
+        const lines = prompt.split(/\r?\n/u);
         const chunks: string[] = [];
         for (let i = 0; i < lines.length; i += dsl.maxLines) {
           chunks.push(lines.slice(i, i + dsl.maxLines).join('\n'));
@@ -127,8 +350,9 @@ export class DSLRepl {
           throw new Error('sum_csv_column.column must be >= 0');
         }
         const delimiter = dsl.delimiter ?? ',';
-        consumePromptChars(this.env.budget, this.env.prompt.length);
-        const lines = this.env.prompt
+        const prompt = await this.readPromptAll();
+        consumePromptChars(this.env.budget, prompt.length);
+        const lines = prompt
           .split(/\r?\n/u)
           .map((line) => line.trim())
           .filter((line) => line.length > 0);
@@ -165,9 +389,10 @@ export class DSLRepl {
         if (!Number.isFinite(requested)) {
           throw new Error('pick_word.index must be finite');
         }
-        consumePromptChars(this.env.budget, this.env.prompt.length);
+        const prompt = await this.readPromptAll();
+        consumePromptChars(this.env.budget, prompt.length);
 
-        const words = this.env.prompt
+        const words = prompt
           .split(/[^\p{L}\p{N}_-]+/u)
           .map((word) => word.trim())
           .filter((word) => word.length > 0);
@@ -284,6 +509,25 @@ export class DSLRepl {
     }
   }
 }
+
+const normalizeCsvComparator = (
+  input: unknown,
+): 'eq' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte' => {
+  if (input === undefined) {
+    return 'eq';
+  }
+  if (
+    input === 'eq' ||
+    input === 'contains' ||
+    input === 'gt' ||
+    input === 'gte' ||
+    input === 'lt' ||
+    input === 'lte'
+  ) {
+    return input;
+  }
+  throw new Error('doc_select_rows.comparator must be eq|contains|gt|gte|lt|lte');
+};
 
 const setByPath = (
   root: { scratch: Record<string, unknown>; final?: string },

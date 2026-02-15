@@ -102,16 +102,33 @@ const makeProvider = (
 
     return new MockLLMProvider({
       scriptsByDepth: {
-        0: [
-          JSON.stringify({ op: 'set', path: 'scratch.answer', value: evalCase.expected }),
-          JSON.stringify({ op: 'finalize', from: 'answer' }),
-        ],
+        0: makeMockRlmScript(args.profile, evalCase.expected),
       },
     });
   }
 
   return new OpenAIProvider({ model: args.model });
 };
+
+const makeMockRlmScript = (
+  profile: CLIArgs['profile'],
+  expected: string,
+): string[] =>
+  profile === 'hybrid'
+    ? [
+        JSON.stringify({
+          op: 'slice_prompt',
+          start: 0,
+          end: 1,
+          out: 'probe',
+        }),
+        JSON.stringify({ op: 'set', path: 'scratch.answer', value: expected }),
+        JSON.stringify({ op: 'finalize', from: 'answer' }),
+      ]
+    : [
+        JSON.stringify({ op: 'set', path: 'scratch.answer', value: expected }),
+        JSON.stringify({ op: 'finalize', from: 'answer' }),
+      ];
 
 const pct = (v: number): string => `${(v * 100).toFixed(1)}%`;
 

@@ -1,5 +1,40 @@
 export type DSL =
   | { op: 'prompt_meta' }
+  | {
+      op: 'doc_parse';
+      format?: 'auto' | 'text' | 'markdown' | 'csv';
+      delimiter?: string;
+      out: string;
+    }
+  | {
+      op: 'doc_select_section';
+      in: string;
+      title: string;
+      out: string;
+    }
+  | {
+      op: 'doc_table_sum';
+      in: string;
+      column: number | string;
+      out: string;
+    }
+  | {
+      op: 'doc_select_rows';
+      in: string;
+      column: number | string;
+      comparator?: 'eq' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte';
+      value?: string | number | boolean | null;
+      equals?: string | number | boolean | null;
+      out: string;
+    }
+  | {
+      op: 'doc_project_columns';
+      in: string;
+      columns: (number | string)[];
+      out: string;
+      separator?: string;
+      includeHeader?: boolean;
+    }
   | { op: 'slice_prompt'; start: number; end: number; out: string }
   | { op: 'find'; needle: string; from?: number; out: string }
   | { op: 'chunk_newlines'; maxLines: number; out: string }

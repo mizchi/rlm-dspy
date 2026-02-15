@@ -2,10 +2,12 @@ import { describe, expect, test } from 'vitest';
 import { defaultBudget } from '../src/budget/Budget.ts';
 import { DSLRepl } from '../src/repl/DSLRepl.ts';
 import type { RLMEnv } from '../src/rlm/types.ts';
+import { InMemoryDocStore } from '../src/doc/DocStore.ts';
 
 const makeEnv = (prompt: string): RLMEnv => ({
   prompt,
   promptId: 'prompt-id',
+  docStore: InMemoryDocStore.fromSingle('prompt-id', prompt),
   scratch: {},
   cache: new Map(),
   budget: defaultBudget(),
@@ -103,5 +105,122 @@ describe('DSLRepl', () => {
 
     await repl.exec({ op: 'finalize', from: 'scratch.answer' }, 1);
     expect(env.final).toBe('ok');
+  });
+
+  test('doc_parse + doc_select_section で Markdown セクションを抽出できる', async () => {
+    const prompt = ['# Intro', 'hello', '', '## Data', 'alpha', 'beta', '', '# End', 'done'].join('\n');
+    const env = makeEnv(prompt);
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec({ op: 'doc_parse', format: 'markdown', out: 'doc' }, 1);
+    await repl.exec(
+      { op: 'doc_select_section', in: 'doc', title: 'Data', out: 'picked' },
+      2,
+    );
+    await repl.exec({ op: 'finalize', from: 'picked' }, 3);
+
+    expect(env.final).toBe('alpha\nbeta');
+    expect(env.budget.promptReadCharsUsed).toBe(prompt.length);
+  });
+
+  test('doc_parse + doc_table_sum で CSV のヘッダ列を合計できる', async () => {
+    const prompt = ['name,score', 'alice,3', 'bob,5'].join('\n');
+    const env = makeEnv(prompt);
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec({ op: 'doc_parse', format: 'csv', out: 'doc' }, 1);
+    await repl.exec(
+      { op: 'doc_table_sum', in: 'doc', column: 'score', out: 'total' },
+      2,
+    );
+    await repl.exec({ op: 'finalize', from: 'total' }, 3);
+
+    expect(env.final).toBe('8');
+    expect(env.budget.promptReadCharsUsed).toBe(prompt.length);
+  });
+
+  test('doc_select_rows + doc_project_columns で条件行の列を抽出できる', async () => {
+    const prompt = ['name,score,team', 'alice,3,a', 'bob,5,b', 'alice,7,c'].join('\n');
+    const env = makeEnv(prompt);
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec({ op: 'doc_parse', format: 'csv', out: 'doc' }, 1);
+    await repl.exec(
+      { op: 'doc_select_rows', in: 'doc', column: 'name', equals: 'alice', out: 'rows' },
+      2,
+    );
+    await repl.exec(
+      { op: 'doc_project_columns', in: 'rows', columns: ['score'], out: 'scores' },
+      3,
+    );
+    await repl.exec({ op: 'reduce_join', in: 'scores', sep: '|', out: 'answer' }, 4);
+    await repl.exec({ op: 'finalize', from: 'answer' }, 5);
+
+    expect(env.final).toBe('3|7');
+    expect(env.budget.promptReadCharsUsed).toBe(prompt.length);
+  });
+
+  test('doc_select_rows で gt 比較ができる', async () => {
+    const prompt = ['name,score', 'alice,3', 'bob,5', 'carol,7'].join('\n');
+    const env = makeEnv(prompt);
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec({ op: 'doc_parse', format: 'csv', out: 'doc' }, 1);
+    await repl.exec(
+      {
+        op: 'doc_select_rows',
+        in: 'doc',
+        column: 'score',
+        comparator: 'gt',
+        value: 4,
+        out: 'rows',
+      },
+      2,
+    );
+    await repl.exec(
+      { op: 'doc_project_columns', in: 'rows', columns: ['name'], out: 'names' },
+      3,
+    );
+    await repl.exec({ op: 'reduce_join', in: 'names', sep: '|', out: 'answer' }, 4);
+    await repl.exec({ op: 'finalize', from: 'answer' }, 5);
+
+    expect(env.final).toBe('bob|carol');
+  });
+
+  test('doc_select_rows で contains 比較ができる', async () => {
+    const prompt = ['name,note', 'alice,core-team', 'bob,contractor'].join('\n');
+    const env = makeEnv(prompt);
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec({ op: 'doc_parse', format: 'csv', out: 'doc' }, 1);
+    await repl.exec(
+      {
+        op: 'doc_select_rows',
+        in: 'doc',
+        column: 'note',
+        comparator: 'contains',
+        value: 'team',
+        out: 'rows',
+      },
+      2,
+    );
+    await repl.exec(
+      { op: 'doc_project_columns', in: 'rows', columns: ['name'], out: 'names' },
+      3,
+    );
+    await repl.exec({ op: 'reduce_join', in: 'names', sep: '', out: 'answer' }, 4);
+    await repl.exec({ op: 'finalize', from: 'answer' }, 5);
+
+    expect(env.final).toBe('alice');
   });
 });
