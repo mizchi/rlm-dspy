@@ -1,0 +1,8 @@
+# needle search
+{"id":"needle-1","prompt":"header\nTOKEN=NEBULA-42\nfooter","query":"TOKEN の値だけ返して","expected":"NEBULA-42","metric":"exact","tags":["needle"]}
+
+# simple aggregate
+{"id":"sum-1","prompt":"apple,3\nbanana,4\ncherry,2","query":"2列目の数値合計を返して","expected":"9","metric":"exact","tags":["aggregate"]}
+
+# contains metric example
+{"id":"contains-1","prompt":"alpha beta gamma","query":"文章に含まれる単語を一つ答えて","expected":"beta","metric":"contains","tags":["contains"]}

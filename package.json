@@ -1,0 +1,19 @@
+{
+  "name": "@mizchi/rlm-dspy",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "RLM (Recursive Language Models) TypeScript prototype",
+  "main": "./src/index.ts",
+  "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "check": "tsc --noEmit",
+    "eval": "node scripts/eval.ts --provider mock --cases eval/cases.sample.jsonl",
+    "eval:openai": "node scripts/eval.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.4"
+  }
+}
