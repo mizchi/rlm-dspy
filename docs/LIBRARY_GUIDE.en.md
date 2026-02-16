@@ -245,3 +245,9 @@ const out = await runPlannedRLM({
   },
 });
 ```
+
+FlatBuffers experiment runner:
+
+```bash
+pnpm flatbuffers:longrun
+```

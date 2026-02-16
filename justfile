@@ -18,4 +18,7 @@ eval *args:
 eval-ablation *args:
   pnpm node scripts/eval_ablation.ts {{args}}
 
+flatbuffers-longrun *args:
+  pnpm node scripts/flatbuffers_long_run.ts {{args}}
+
 ci: test check

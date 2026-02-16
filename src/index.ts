@@ -85,6 +85,17 @@ export {
 } from './improve/longRun.ts';
 
 export type {
+  FlatbuffersBenchmarkSummary,
+  FlatbuffersCandidate,
+} from './integrations/flatbuffers.ts';
+export {
+  buildFlatbuffersConfigureArgs,
+  extractFlatbuffersBenchmarkSummary,
+  makeDefaultFlatbuffersCandidates,
+  sanitizeCandidateId,
+} from './integrations/flatbuffers.ts';
+
+export type {
   CreateRLMPlanArgs,
   PlannedLongRunHooks,
   PlannedRLMResult,

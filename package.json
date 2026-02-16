@@ -23,7 +23,8 @@
     "eval:openai": "node scripts/eval.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profile hybrid",
     "eval:openai:pure": "node scripts/eval.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profile pure",
     "eval:ablation": "node scripts/eval_ablation.ts --provider mock --cases eval/cases.sample.jsonl --profiles pure,hybrid --runs 3",
-    "eval:ablation:openai": "node scripts/eval_ablation.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profiles pure,hybrid --runs 2"
+    "eval:ablation:openai": "node scripts/eval_ablation.ts --provider openai --cases eval/cases.sample.jsonl --model gpt-4.1-mini --profiles pure,hybrid --runs 2",
+    "flatbuffers:longrun": "node scripts/flatbuffers_long_run.ts --planner-provider mock --candidate-limit 3 --max-iterations 2"
   },
   "devDependencies": {
     "typescript": "^5.9.3",

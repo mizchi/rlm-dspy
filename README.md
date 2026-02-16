@@ -170,6 +170,24 @@ if (out.mode === 'single') {
 }
 ```
 
+### FlatBuffers で long-run を試す
+
+```bash
+pnpm flatbuffers:longrun
+```
+
+明示指定する場合:
+
+```bash
+pnpm node scripts/flatbuffers_long_run.ts \
+  --planner-provider mock \
+  --repo /Users/mz/ghq/github.com/google/flatbuffers \
+  --candidate-limit 2 \
+  --max-iterations 2 \
+  --repetitions 2 \
+  --out eval/report.flatbuffers.longrun.mock.json
+```
+
 長時間ラン（例: GitHub open issue を減らす）では `runLongImprovementLoop` を使います。
 
 ```ts
