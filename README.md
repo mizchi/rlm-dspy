@@ -65,6 +65,8 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
   - CSV の条件一致行だけを絞り込む（列名/列index対応、`eq/contains/gt/gte/lt/lte`）
 - `doc_project_columns`:
   - CSV から指定列だけを射影し、配列化して後段 (`reduce_join` など) で利用
+- `chunk_tokens`:
+  - 単語ベースの近似トークン分割（`maxTokens` と `overlap` 指定）
 - `sub_map`:
   - `concurrency` 指定で subRLM 呼び出しを並列化（出力順は入力順を維持）
 

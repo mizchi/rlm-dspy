@@ -342,6 +342,53 @@ export class DSLRepl {
         });
       }
 
+      case 'chunk_tokens': {
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('chunk_tokens.out must be non-empty string');
+        }
+        if (!Number.isFinite(dsl.maxTokens) || dsl.maxTokens <= 0) {
+          throw new Error('chunk_tokens.maxTokens must be > 0');
+        }
+        if (
+          dsl.overlap !== undefined &&
+          (!Number.isFinite(dsl.overlap) || dsl.overlap < 0)
+        ) {
+          throw new Error('chunk_tokens.overlap must be >= 0');
+        }
+        const maxTokens = Math.max(1, Math.floor(dsl.maxTokens));
+        const overlap = Math.floor(dsl.overlap ?? 0);
+        if (overlap >= maxTokens) {
+          throw new Error('chunk_tokens.overlap must be < maxTokens');
+        }
+
+        const prompt = await this.readPromptAll();
+        consumePromptChars(this.env.budget, prompt.length);
+        const tokens = prompt
+          .split(/\s+/u)
+          .map((t) => t.trim())
+          .filter((t) => t.length > 0);
+        const chunks: string[] = [];
+        if (tokens.length > 0) {
+          const stride = Math.max(1, maxTokens - overlap);
+          for (let i = 0; i < tokens.length; i += stride) {
+            const part = tokens.slice(i, i + maxTokens);
+            if (part.length === 0) {
+              continue;
+            }
+            chunks.push(part.join(' '));
+            if (i + maxTokens >= tokens.length) {
+              break;
+            }
+          }
+        }
+        this.env.scratch[dsl.out] = chunks;
+        return JSON.stringify({
+          out: dsl.out,
+          count: chunks.length,
+          firstChunkPreview: (chunks[0] ?? '').slice(0, 200),
+        });
+      }
+
       case 'sum_csv_column': {
         if (typeof dsl.out !== 'string' || dsl.out === '') {
           throw new Error('sum_csv_column.out must be non-empty string');

@@ -39,6 +39,12 @@ export type DSL =
   | { op: 'find'; needle: string; from?: number; out: string }
   | { op: 'chunk_newlines'; maxLines: number; out: string }
   | {
+      op: 'chunk_tokens';
+      maxTokens: number;
+      overlap?: number;
+      out: string;
+    }
+  | {
       op: 'sum_csv_column';
       column: number;
       delimiter?: string;

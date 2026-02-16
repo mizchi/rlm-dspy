@@ -21,7 +21,7 @@ import { InMemoryDocStore } from '../doc/DocStore.ts';
 const DEFAULT_SYSTEM_PROMPT = [
   'You are an RLM root controller.',
   'Output exactly one JSON object and nothing else.',
-  'Allowed ops: prompt_meta, doc_parse, doc_select_section, doc_table_sum, doc_select_rows, doc_project_columns, slice_prompt, find, chunk_newlines, sum_csv_column, pick_word, sub_map, reduce_join, set, finalize.',
+  'Allowed ops: prompt_meta, doc_parse, doc_select_section, doc_table_sum, doc_select_rows, doc_project_columns, slice_prompt, find, chunk_newlines, chunk_tokens, sum_csv_column, pick_word, sub_map, reduce_join, set, finalize.',
   'Required fields by op must be present and correctly typed.',
   'Do not invent fields like env, action, tool, code.',
   'To finish, first put final text in scratch via set, then call {"op":"finalize","from":"<key>"} exactly.',
@@ -75,6 +75,7 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
             'slice_prompt',
             'find',
             'chunk_newlines',
+            'chunk_tokens',
             'sum_csv_column',
             'pick_word',
             'sub_map',
@@ -108,6 +109,8 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
         needle: { type: ['string', 'null'] },
         from: { type: ['number', 'string', 'null'] },
         maxLines: { type: ['number', 'string', 'null'] },
+        maxTokens: { type: ['number', 'string', 'null'] },
+        overlap: { type: ['number', 'string', 'null'] },
         column: { type: ['number', 'string', 'null'] },
         delimiter: { type: ['string', 'null'] },
         index: { type: ['number', 'string', 'null'] },
@@ -541,6 +544,16 @@ const coerceDSL = (raw: unknown): DSL => {
         op,
         maxLines: asNumber(row.maxLines ?? 20, 'chunk_newlines.maxLines'),
         out: asString(row.out ?? 'chunks', 'chunk_newlines.out'),
+      };
+
+    case 'chunk_tokens':
+      return {
+        op,
+        maxTokens: asNumber(row.maxTokens ?? row.maxWords ?? 200, 'chunk_tokens.maxTokens'),
+        ...(row.overlap !== undefined && row.overlap !== null
+          ? { overlap: asNumber(row.overlap, 'chunk_tokens.overlap') }
+          : {}),
+        out: asString(row.out ?? 'chunks', 'chunk_tokens.out'),
       };
 
     case 'sub_map':

@@ -253,4 +253,30 @@ describe('DSLRepl', () => {
     expect(maxInflight).toBe(2);
     expect(env.scratch.mapped).toEqual(['a', 'b', 'c']);
   });
+
+  test('chunk_tokens で単語数ベースに分割できる', async () => {
+    const env = makeEnv('aa bb cc dd ee');
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec({ op: 'chunk_tokens', maxTokens: 2, out: 'chunks' } as never, 1);
+
+    expect(env.scratch.chunks).toEqual(['aa bb', 'cc dd', 'ee']);
+    expect(env.budget.promptReadCharsUsed).toBe('aa bb cc dd ee'.length);
+  });
+
+  test('chunk_tokens は overlap で前後文脈を重ねられる', async () => {
+    const env = makeEnv('a b c d e');
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await repl.exec(
+      { op: 'chunk_tokens', maxTokens: 3, overlap: 1, out: 'chunks' } as never,
+      1,
+    );
+
+    expect(env.scratch.chunks).toEqual(['a b c', 'c d e']);
+  });
 });
