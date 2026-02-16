@@ -289,6 +289,8 @@ moon -C moonbit check
 moon -C moonbit test
 ```
 
+MoonBit 側は `improve/*` に加えて、`run_rlm` / `run_planned_rlm` / `parse_eval_jsonl` と `mizchi/llm` ベースの `run_rlm_with_openai` / `run_planned_rlm_with_openai` まで移植済み。
+
 ## 評価実行
 
 ### 1) ローカル確認（mock）

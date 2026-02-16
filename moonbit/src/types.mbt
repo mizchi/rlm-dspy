@@ -106,6 +106,23 @@ pub struct LongRunImprovementReport[T, S] {
 }
 
 ///|
+pub struct ObjectiveMetricSymbol[T, S] {
+  key : String
+  direction : MetricDirection
+  weight : Double
+  read : (ImprovementCandidate[T], Int, S) -> Result[Double, String]
+}
+
+///|
+pub struct ConstraintMetricSymbol[T, S] {
+  key : String
+  comparator : MetricComparator
+  value : Double
+  source : ConstraintSource
+  read : (ImprovementCandidate[T], Int, S) -> Result[Double, String]
+}
+
+///|
 pub struct RoundSummary {
   result_ids : Array[String]
   accepted_count : Int

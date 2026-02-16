@@ -1,12 +1,94 @@
 // Generated using `moon info`, DON'T EDIT IT
 package "mizchi/rlm_dspy_moonbit"
 
+import {
+  "mizchi/llm",
+}
+
 // Values
+pub fn[T, S] build_policy_from_metric_symbols(Array[ObjectiveMetricSymbol[T, S]], constraints? : Array[ConstraintMetricSymbol[T, S]], min_score_delta? : Double) -> ImprovementPolicy
+
+pub fn build_profile_rlm_options(RLMProfile) -> RLMRunOptions
+
 pub fn[T] candidate(String, T) -> ImprovementCandidate[T]
+
+pub fn coerce_planner_plan_from_json(Json, String, Array[String]) -> RLMPlannerPlan
+
+pub fn[T, S] collect_metric_snapshot_by_symbols(ImprovementCandidate[T], Int, S, Array[ObjectiveMetricSymbol[T, S]], constraints? : Array[ConstraintMetricSymbol[T, S]]) -> Result[MetricSnapshot, String]
+
+pub fn compile_plan_to_rlm_options(RLMPlannerPlan, base? : RLMRunOptions?) -> RLMRunOptions
 
 pub fn constraint(String, MetricComparator, Double, source? : ConstraintSource) -> ImprovementConstraint
 
+pub fn[T, S] constraint_metric_symbol(String, MetricComparator, Double, (ImprovementCandidate[T], Int, S) -> Result[Double, String], source? : ConstraintSource) -> ConstraintMetricSymbol[T, S]
+
+pub fn[T, TMetrics] create_metric_symbol(T, (Json) -> Result[T, String], (T) -> Result[TMetrics, String], (TMetrics, String) -> Result[Double, String], Map[String, TMetrics], (T) -> String) -> (RLMExternalSymbolCall) -> Result[Json, String]
+
+pub fn create_plan_with_provider(String, String, &@llm.Provider, available_symbols? : Array[String], planner_system_prompt? : String) -> RLMPlannerPlan
+
+pub fn default_planner_system_prompt() -> String
+
+pub fn default_rlm_budget(max_steps? : Int, max_sub_calls? : Int, max_depth? : Int, max_prompt_read_chars? : Int, depth? : Int) -> RLMBudgetState
+
+pub fn default_rlm_openai_options(model? : String, max_tokens? : Int, system_prompt? : String, timeout_sec? : Int, max_retries? : Int) -> RLMOpenAIOptions
+
+pub fn default_rlm_options(budget? : RLMBudgetState, meta_preview_chars? : Int, task? : String?, require_prompt_read_before_finalize? : Bool, sub_runner? : ((String) -> Result[String, String])?, symbol_runner? : ((RLMExternalSymbolCall) -> Result[Json, String])?) -> RLMRunOptions
+
+pub fn dsl_call_symbol(String, String, args? : Json?, input? : Json?) -> RLMDSL
+
+pub fn dsl_chunk_newlines(Int, String) -> RLMDSL
+
+pub fn dsl_chunk_tokens(Int, overlap? : Int?, out? : String) -> RLMDSL
+
+pub fn dsl_doc_parse(format? : String?, delimiter? : String?, out? : String) -> RLMDSL
+
+pub fn dsl_doc_project_columns(String, Array[Json], String, separator? : String?, include_header? : Bool?) -> RLMDSL
+
+pub fn dsl_doc_select_rows(String, Json, comparator? : String?, value? : Json?, out? : String) -> RLMDSL
+
+pub fn dsl_doc_select_section(String, String, String) -> RLMDSL
+
+pub fn dsl_doc_table_sum(String, Json, String) -> RLMDSL
+
+pub fn dsl_finalize(String) -> RLMDSL
+
+pub fn dsl_find(String, from? : Int, out? : String) -> RLMDSL
+
+pub fn dsl_pick_word(index? : Int?, out? : String) -> RLMDSL
+
+pub fn dsl_prompt_meta() -> RLMDSL
+
+pub fn dsl_reduce_join(String, String, String) -> RLMDSL
+
+pub fn dsl_set(String, Json) -> RLMDSL
+
+pub fn dsl_set_string(String, String) -> RLMDSL
+
+pub fn dsl_slice_prompt(Int, Int, String) -> RLMDSL
+
+pub fn dsl_sub_map(String, String, String, limit? : Int?, concurrency? : Int?) -> RLMDSL
+
+pub fn dsl_sum_csv_column(Int, delimiter? : String?, out? : String) -> RLMDSL
+
 pub fn objective(String, MetricDirection, weight? : Double) -> ImprovementObjective
+
+pub fn[T, S] objective_metric_symbol(String, MetricDirection, (ImprovementCandidate[T], Int, S) -> Result[Double, String], weight? : Double) -> ObjectiveMetricSymbol[T, S]
+
+pub fn parse_eval_jsonl(String) -> Result[Array[EvalCase], String]
+
+pub fn parse_rlm_profile(String?) -> Result[RLMProfile, String]
+
+pub fn[T, S] planned_long_run_hooks(MetricSnapshot, S, (LongRunIterationContext[T, S], RLMPlannerPlan) -> Array[ImprovementCandidate[T]], (ImprovementCandidate[T], LongRunIterationContext[T, S], RLMPlannerPlan) -> Result[MetricSnapshot, String], max_iterations? : Int?, stop_when_no_accept? : Bool?, on_accepted? : ((ImprovementResult[T], S) -> S)?) -> PlannedLongRunHooks[T, S]
+
+pub fn planner_budget_patch(max_steps? : Int?, max_sub_calls? : Int?, max_depth? : Int?, max_prompt_read_chars? : Int?) -> RLMBudgetPatch
+
+pub fn planner_constraint_spec(String, MetricComparator, Double, source? : ConstraintSource) -> PlannerConstraintSpec
+
+pub fn planner_long_run_spec(Array[PlannerObjectiveSpec], constraints? : Array[PlannerConstraintSpec], max_iterations? : Int?, stop_when_no_accept? : Bool?, min_score_delta? : Double?) -> PlannerLongRunSpec
+
+pub fn planner_objective_spec(String, MetricDirection, weight? : Double) -> PlannerObjectiveSpec
+
+pub fn planner_plan(ProgramMode, String, profile? : RLMProfile?, budget? : RLMBudgetPatch?, require_prompt_read_before_finalize? : Bool?, symbols? : Array[String], long_run? : PlannerLongRunSpec?) -> RLMPlannerPlan
 
 pub fn policy(Array[ImprovementObjective], constraints? : Array[ImprovementConstraint], min_score_delta? : Double) -> ImprovementPolicy
 
@@ -18,7 +100,25 @@ pub fn[T] run_improvement_loop(MetricSnapshot, ImprovementPolicy, Array[Improvem
 
 pub fn[T, S] run_long_improvement_loop(MetricSnapshot, ImprovementPolicy, S, Int, Bool, (LongRunIterationContext[T, S]) -> Array[ImprovementCandidate[T]], (ImprovementCandidate[T], LongRunIterationContext[T, S]) -> Result[MetricSnapshot, String], (ImprovementResult[T], S) -> S) -> LongRunImprovementReport[T, S]
 
+pub fn[T, S] run_planned_rlm(String, (Array[RLMChatMessage], Int) -> RLMDSL, RLMPlannerPlan, runtime_options? : RLMRunOptions?, long_run? : PlannedLongRunHooks[T, S]?) -> Result[PlannedRLMResult[T, S], String]
+
+pub fn[T, S] run_planned_rlm_with_openai(String, String, String, available_symbols? : Array[String], runtime_options? : RLMRunOptions?, long_run? : PlannedLongRunHooks[T, S]?, planner_system_prompt? : String, planner_openai_options? : RLMOpenAIOptions, executor_openai_options? : RLMOpenAIOptions?) -> Result[PlannedRLMResult[T, S], String]
+
+pub fn[T, S] run_planned_rlm_with_provider(String, String, &@llm.Provider, available_symbols? : Array[String], runtime_options? : RLMRunOptions?, long_run? : PlannedLongRunHooks[T, S]?, planner_system_prompt? : String) -> Result[PlannedRLMResult[T, S], String]
+
+pub fn[T, S] run_planned_rlm_with_providers(String, String, &@llm.Provider, &@llm.Provider, available_symbols? : Array[String], runtime_options? : RLMRunOptions?, long_run? : PlannedLongRunHooks[T, S]?, planner_system_prompt? : String) -> Result[PlannedRLMResult[T, S], String]
+
 pub fn[TPool, T, S] run_program(ProgramPlan, MetricSnapshot, ImprovementPolicy, Array[TPool], S, (TPool) -> ImprovementCandidate[T], (ImprovementCandidate[T], LongRunIterationContext[T, S]) -> Result[MetricSnapshot, String], (ImprovementResult[T], S) -> S, (Map[String, Double]) -> String) -> ProgramResult[T, S]
+
+pub fn run_rlm(String, (Array[RLMChatMessage], Int) -> RLMDSL, options? : RLMRunOptions) -> Result[RLMResultPack, String]
+
+pub fn run_rlm_from_json(String, (Array[RLMChatMessage], Int) -> String, options? : RLMRunOptions) -> Result[RLMResultPack, String]
+
+pub fn run_rlm_with_openai(String, String, rlm_options? : RLMRunOptions, openai_options? : RLMOpenAIOptions) -> Result[RLMResultPack, String]
+
+pub fn run_rlm_with_provider(String, &@llm.Provider, options? : RLMRunOptions) -> Result[RLMResultPack, String]
+
+pub fn score_answer(String, String, EvalMetric) -> Bool
 
 pub fn score_snapshot(MetricSnapshot, ImprovementPolicy) -> Double
 
@@ -29,6 +129,14 @@ pub fn snapshot(Map[String, Double], gates? : Map[String, Bool]) -> MetricSnapsh
 // Errors
 
 // Types and methods
+pub struct ConstraintMetricSymbol[T, S] {
+  key : String
+  comparator : MetricComparator
+  value : Double
+  source : ConstraintSource
+  read : (ImprovementCandidate[T], Int, S) -> Result[Double, String]
+}
+
 pub enum ConstraintSource {
   Absolute
   Delta
@@ -39,6 +147,28 @@ pub fn ConstraintSource::absolute() -> Self
 pub fn ConstraintSource::delta() -> Self
 pub fn ConstraintSource::delta_ratio() -> Self
 pub fn ConstraintSource::ratio() -> Self
+
+pub struct EvalBudgetPatch {
+  max_steps : Int?
+  max_sub_calls : Int?
+  max_depth : Int?
+  max_prompt_read_chars : Int?
+}
+
+pub struct EvalCase {
+  id : String
+  prompt : String
+  query : String
+  expected : String
+  metric : EvalMetric
+  tags : Array[String]
+  budget : EvalBudgetPatch?
+}
+
+pub enum EvalMetric {
+  Exact
+  Contains
+}
 
 pub struct ImprovementCandidate[T] {
   id : String
@@ -144,6 +274,49 @@ pub struct MetricSnapshot {
 pub fn MetricSnapshot::gate(Self, String) -> Bool?
 pub fn MetricSnapshot::metric(Self, String) -> Double?
 
+pub struct ObjectiveMetricSymbol[T, S] {
+  key : String
+  direction : MetricDirection
+  weight : Double
+  read : (ImprovementCandidate[T], Int, S) -> Result[Double, String]
+}
+
+pub struct PlannedLongRunHooks[T, S] {
+  baseline : MetricSnapshot
+  initial_state : S
+  max_iterations : Int?
+  stop_when_no_accept : Bool?
+  generate_candidates : (LongRunIterationContext[T, S], RLMPlannerPlan) -> Array[ImprovementCandidate[T]]
+  evaluate : (ImprovementCandidate[T], LongRunIterationContext[T, S], RLMPlannerPlan) -> Result[MetricSnapshot, String]
+  on_accepted : ((ImprovementResult[T], S) -> S)?
+}
+
+pub enum PlannedRLMResult[T, S] {
+  SingleResult(RLMPlannerPlan, RLMResultPack)
+  LongRunResult(RLMPlannerPlan, LongRunImprovementReport[T, S])
+}
+
+pub struct PlannerConstraintSpec {
+  key : String
+  comparator : MetricComparator
+  value : Double
+  source : ConstraintSource
+}
+
+pub struct PlannerLongRunSpec {
+  objectives : Array[PlannerObjectiveSpec]
+  constraints : Array[PlannerConstraintSpec]
+  max_iterations : Int?
+  stop_when_no_accept : Bool?
+  min_score_delta : Double?
+}
+
+pub struct PlannerObjectiveSpec {
+  key : String
+  direction : MetricDirection
+  weight : Double
+}
+
 pub enum ProgramMode {
   Single
   LongRun
@@ -173,6 +346,145 @@ pub fn[T, S] ProgramResult::single(Self[T, S]) -> ImprovementReport[T]?
 pub enum ProgramRun[T, S] {
   SingleRun(ImprovementReport[T])
   LongRunRun(LongRunImprovementReport[T, S])
+}
+
+pub struct RLMBudgetPatch {
+  max_steps : Int?
+  max_sub_calls : Int?
+  max_depth : Int?
+  max_prompt_read_chars : Int?
+}
+
+pub struct RLMBudgetState {
+  max_steps : Int
+  max_sub_calls : Int
+  max_depth : Int
+  max_prompt_read_chars : Int
+  steps_used : Int
+  sub_calls_used : Int
+  depth : Int
+  prompt_read_chars_used : Int
+}
+
+pub struct RLMChatMessage {
+  role : RLMRole
+  content : String
+}
+
+pub enum RLMDSL {
+  PromptMeta
+  DocParse(String?, String?, String)
+  DocSelectSection(String, String, String)
+  DocTableSum(String, Json, String)
+  DocSelectRows(String, Json, String?, Json?, String)
+  DocProjectColumns(String, Array[Json], String, String?, Bool?)
+  SlicePrompt(Int, Int, String)
+  Find(String, Int, String)
+  ChunkNewlines(Int, String)
+  ChunkTokens(Int, Int?, String)
+  SumCsvColumn(Int, String?, String)
+  PickWord(Int?, String)
+  CallSymbol(String, String, Json?, Json?)
+  SubMap(String, String, String, Int?, Int?)
+  ReduceJoin(String, String, String)
+  Set(String, Json)
+  Finalize(String)
+}
+
+pub struct RLMExternalSymbolCall {
+  symbol : String
+  prompt : String
+  prompt_id : String
+  depth : Int
+  args : Json?
+  input : Json?
+}
+
+pub struct RLMOpenAIOptions {
+  model : String
+  max_tokens : Int
+  system_prompt : String
+  timeout_sec : Int
+  max_retries : Int
+}
+
+pub struct RLMPlannerPlan {
+  kind : String
+  version : Int
+  mode : ProgramMode
+  task : String
+  profile : RLMProfile?
+  budget : RLMBudgetPatch?
+  require_prompt_read_before_finalize : Bool?
+  symbols : Array[String]
+  long_run : PlannerLongRunSpec?
+}
+
+pub enum RLMProfile {
+  Pure
+  Hybrid
+}
+
+pub struct RLMPromptMeta {
+  prompt_id : String
+  length : Int
+  preview_head : String
+}
+
+pub struct RLMReplExecTrace {
+  step : Int
+  op : String
+  stdout : String
+  stdout_meta : RLMStdoutMeta
+}
+
+pub struct RLMResultPack {
+  final_output : String
+  trace : Array[RLMTraceEvent]
+  budget : RLMBudgetState
+}
+pub fn RLMResultPack::budget(Self) -> RLMBudgetState
+pub fn RLMResultPack::final_output(Self) -> String
+pub fn RLMResultPack::trace(Self) -> Array[RLMTraceEvent]
+
+pub enum RLMRole {
+  System
+  User
+  Assistant
+}
+
+pub struct RLMRootStepTrace {
+  step : Int
+  prompt_meta : RLMPromptMeta
+  stdout_meta : RLMStdoutMeta
+}
+
+pub struct RLMRunOptions {
+  budget : RLMBudgetState
+  meta_preview_chars : Int
+  task : String?
+  require_prompt_read_before_finalize : Bool
+  sub_runner : ((String) -> Result[String, String])?
+  symbol_runner : ((RLMExternalSymbolCall) -> Result[Json, String])?
+}
+
+pub struct RLMStdoutMeta {
+  length : Int
+  preview : String
+  keys : Array[String]
+}
+
+pub struct RLMSubCallTrace {
+  depth : Int
+  query : String
+  result_meta : RLMStdoutMeta
+  cached : Bool
+}
+
+pub enum RLMTraceEvent {
+  RootStep(RLMRootStepTrace)
+  ReplExec(RLMReplExecTrace)
+  SubCall(RLMSubCallTrace)
 }
 
 pub struct RoundSummary {

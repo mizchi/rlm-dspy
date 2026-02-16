@@ -2,6 +2,67 @@
 /// Iterative long-run semantics.
 
 ///|
+pub fn[T, S] build_policy_from_metric_symbols(
+  objectives : Array[ObjectiveMetricSymbol[T, S]],
+  constraints? : Array[ConstraintMetricSymbol[T, S]] = [],
+  min_score_delta? : Double = 0.0,
+) -> ImprovementPolicy {
+  let built_objectives : Array[ImprovementObjective] = []
+  for row in objectives {
+    built_objectives.push({
+      key: row.key,
+      direction: row.direction,
+      weight: row.weight,
+    })
+  }
+
+  let built_constraints : Array[ImprovementConstraint] = []
+  for row in constraints {
+    built_constraints.push({
+      key: row.key,
+      comparator: row.comparator,
+      value: row.value,
+      source: row.source,
+    })
+  }
+
+  {
+    objectives: built_objectives,
+    constraints: built_constraints,
+    min_score_delta,
+  }
+}
+
+///|
+pub fn[T, S] collect_metric_snapshot_by_symbols(
+  candidate : ImprovementCandidate[T],
+  iteration : Int,
+  state : S,
+  objectives : Array[ObjectiveMetricSymbol[T, S]],
+  constraints? : Array[ConstraintMetricSymbol[T, S]] = [],
+) -> Result[MetricSnapshot, String] {
+  let metrics : Map[String, Double] = {}
+
+  for objective in objectives {
+    let value = match (objective.read)(candidate, iteration, state) {
+      Ok(v) => v
+      Err(message) => return Err(message)
+    }
+    metrics.set(objective.key, value)
+  }
+
+  for constraint in constraints {
+    let value = match (constraint.read)(candidate, iteration, state) {
+      Ok(v) => v
+      Err(message) => return Err(message)
+    }
+    metrics.set(constraint.key, value)
+  }
+
+  Ok({ metrics, gates: {} })
+}
+
+///|
 pub fn[T, S] run_long_improvement_loop(
   baseline : MetricSnapshot,
   policy : ImprovementPolicy,

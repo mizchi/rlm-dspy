@@ -1,2 +1,8 @@
 import {
+  "moonbitlang/core/json" @json,
+  "mizchi/llm" @llm,
+  "mizchi/llm/openai" @llm_openai,
+}
+
+import {
 } for "wbtest"
