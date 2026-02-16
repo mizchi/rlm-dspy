@@ -2,6 +2,12 @@
 
 RLM (Recursive Language Models) の TypeScript 仮実装です。
 
+利用者向けガイド:
+
+- index: `docs/LIBRARY_GUIDE.md`
+- 日本語: `docs/LIBRARY_GUIDE.ja.md`
+- English: `docs/LIBRARY_GUIDE.en.md`
+
 ## 目的
 
 - prompt 本文を LLM 履歴に入れず、REPL 環境に保持する
