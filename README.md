@@ -147,6 +147,8 @@ console.log(report.bestAccepted?.candidate.id);
 
 `flatbuffers` と `lint` の long-run スクリプト共通部分は、以下に切り出しています。
 
+- `runLongRunProgram`:
+  - long-run の実行サイクル（planner -> candidate 反復 -> report 出力）を共通化
 - `createMetricSymbol`:
   - `metricKey` と `candidate` を受けて、評価関数を呼び、数値メトリクスを返す
   - candidate ごとのキャッシュにも対応

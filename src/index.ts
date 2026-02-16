@@ -95,6 +95,14 @@ export {
 } from './improve/harness.ts';
 
 export type {
+  LongRunCommonArgs,
+  LongRunProgramIO,
+  LongRunProgramSpec,
+  RunLongRunProgramOptions,
+} from './improve/program.ts';
+export { runLongRunProgram } from './improve/program.ts';
+
+export type {
   ApplyTextEditsResult,
   FlatbuffersBenchmarkSummary,
   FlatbuffersCandidate,

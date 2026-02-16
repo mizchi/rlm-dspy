@@ -2,8 +2,6 @@ import { execFile } from 'node:child_process';
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { MockLLMProvider } from '../src/llm/MockLLMProvider.ts';
-import { OpenAIProvider } from '../src/llm/OpenAIProvider.ts';
 import {
   extractESLintSummary,
   makeDefaultLintCandidates,
@@ -14,42 +12,30 @@ import {
   type LintTextEdit,
 } from '../src/integrations/lint.ts';
 import {
-  createRLMPlan,
-  runPlannedRLM,
-  type RLMPlannerPlan,
-} from '../src/planner/index.ts';
-import {
-  createMetricSymbol,
-  selectUntriedCandidates,
-} from '../src/improve/harness.ts';
+  runLongRunProgram,
+  type LongRunCommonArgs,
+} from '../src/improve/program.ts';
+import type { RLMPlannerPlan } from '../src/planner/index.ts';
 import { parseOneJSON } from '../src/util/json.ts';
 import {
   parseCLIKeyValues,
   parsePlannerProvider,
   parsePositiveInt,
-  type PlannerProvider,
 } from '../src/util/cli.ts';
 import { applyTextEdits } from '../src/util/textEdits.ts';
 import {
   cleanupDetachedWorktree,
   prepareDetachedWorktree,
 } from '../src/util/worktree.ts';
-import type { ExternalSymbolFn } from '../src/rlm/types.ts';
 
 const execFileAsync = promisify(execFile);
 
-interface CLIArgs {
+interface CLIArgs extends LongRunCommonArgs {
   repoDir: string;
   buildRootDir: string;
-  plannerProvider: PlannerProvider;
-  model: string;
-  goal: string;
-  maxIterations: number;
-  candidateLimit: number;
   lintCommand: string;
   testCommand?: string;
   candidatesFile?: string;
-  outPath?: string;
 }
 
 interface LintMetrics {
@@ -63,192 +49,82 @@ interface LintMetrics {
 }
 
 const main = async (): Promise<void> => {
-  const args = parseArgs(process.argv.slice(2));
-  const plannerLLM =
-    args.plannerProvider === 'openai'
-      ? new OpenAIProvider({ model: args.model })
-      : new MockLLMProvider({
-          scriptsByDepth: {
-            0: [JSON.stringify(makeMockLongRunPlan(args.goal, args.maxIterations))],
-          },
-        });
-
-  const pool = await loadCandidates(args);
-  const metricsCache = new Map<string, LintMetrics>();
-
-  const evaluateCandidate = async (candidate: LintCandidate): Promise<LintMetrics> => {
-    const key = JSON.stringify(candidate);
-    const cached = metricsCache.get(key);
-    if (cached !== undefined) {
-      return cached;
-    }
-
-    process.stdout.write(`[candidate] ${candidate.id} evaluate\n`);
-    const sourceDir = join(
-      args.buildRootDir,
-      `_wt_${sanitizeCandidateId(candidate.id)}`,
-    );
-
-    let commandFailures = 0;
-    try {
-      await prepareWorktree({
-        repoDir: args.repoDir,
-        sourceDir,
-      });
-      await applyCandidateEdits(sourceDir, candidate.edits ?? []);
-
-      for (const command of candidate.commands) {
-        const run = await runShell(command, sourceDir);
-        if (run.exitCode !== 0) {
-          commandFailures += 1;
-          process.stderr.write(
-            `[candidate] ${candidate.id} command failed (${run.exitCode}): ${command}\n`,
-          );
-        }
-      }
-
-      const lintRun = await runShell(args.lintCommand, sourceDir);
-      const lintSummary = parseLintSummary(lintRun);
-      if (lintSummary === undefined) {
-        commandFailures += 1;
-      }
-      const testFailures = await evaluateTestFailures(args.testCommand, sourceDir);
-      const metrics: LintMetrics = {
-        lintErrors: lintSummary?.lintErrors ?? Number.POSITIVE_INFINITY,
-        lintWarnings: lintSummary?.lintWarnings ?? Number.POSITIVE_INFINITY,
-        fixableErrors: lintSummary?.fixableErrors ?? Number.POSITIVE_INFINITY,
-        fixableWarnings: lintSummary?.fixableWarnings ?? Number.POSITIVE_INFINITY,
-        filesWithProblems: lintSummary?.filesWithProblems ?? Number.POSITIVE_INFINITY,
-        testFailures,
-        commandFailures,
-      };
-      metricsCache.set(key, metrics);
-      return metrics;
-    } finally {
-      await cleanupWorktree(args.repoDir, sourceDir);
-    }
-  };
-
-  const baselineInput: LintCandidate = {
-    id: 'baseline',
-    description: 'No transform',
-    commands: [],
-  };
-  const baseline = await evaluateCandidate(baselineInput);
-  process.stdout.write(
-    `[baseline] lintErrors=${fmt(baseline.lintErrors)} lintWarnings=${fmt(baseline.lintWarnings)} testFailures=${baseline.testFailures} commandFailures=${baseline.commandFailures}\n`,
-  );
-
-  const symbols: Record<string, ExternalSymbolFn> = {
-    metric_lint: createMetricSymbol({
-      baselineInput,
+  await runLongRunProgram<
+    CLIArgs,
+    LintCandidate,
+    LintCandidate,
+    LintMetrics,
+    { repoDir: string }
+  >(
+    {
+      symbolName: 'metric_lint',
+      parseArgs,
+      createMockPlan: makeMockLongRunPlan,
+      normalizePlan: (plan, goal, maxIterations) =>
+        normalizeLintPlan(plan, goal, maxIterations, 'metric_lint'),
+      buildPrompt: (args) =>
+        [
+          `repoDir=${args.repoDir}`,
+          'task=optimize lint metrics by applying candidate commands on a worktree',
+          `lintCommand=${args.lintCommand}`,
+          ...(args.testCommand !== undefined
+            ? [`testCommand=${args.testCommand}`]
+            : []),
+        ].join('\n'),
+      loadPool: loadCandidates,
+      toCandidate: (row) => ({
+        id: row.id,
+        input: row,
+      }),
+      baselineCandidate: () => ({
+        id: 'baseline',
+        description: 'No transform',
+        commands: [],
+      }),
       coerceCandidate,
       evaluateCandidate,
       pickMetric,
-      cache: metricsCache,
+      initialState: (args) => ({ repoDir: args.repoDir }),
+      formatMetrics: formatLintMetrics,
       cacheKey: (candidate) => JSON.stringify(candidate),
-    }),
-  };
-
-  const prompt = [
-    `repoDir=${args.repoDir}`,
-    'task=optimize lint metrics by applying candidate commands on a worktree',
-    `lintCommand=${args.lintCommand}`,
-    ...(args.testCommand !== undefined ? [`testCommand=${args.testCommand}`] : []),
-  ].join('\n');
-
-  const planned = await createRLMPlan({
-    input: args.goal,
-    prompt,
-    llm: plannerLLM,
-    availableSymbols: ['metric_lint'],
-  });
-  const plan = normalizeLintPlan(planned, args.goal, args.maxIterations, 'metric_lint');
-
-  const result = await runPlannedRLM<LintCandidate, { repoDir: string }>({
-    input: args.goal,
-    prompt,
-    plannerLLM,
-    planOverride: plan,
-    symbols,
-    longRun: {
-      baseline: {
-        metrics: {
-          lintErrors: baseline.lintErrors,
-          lintWarnings: baseline.lintWarnings,
-          testFailures: baseline.testFailures,
-          commandFailures: baseline.commandFailures,
-        },
-      },
-      initialState: { repoDir: args.repoDir },
-      maxIterations: args.maxIterations,
-      stopWhenNoAccept: true,
-      generateCandidates: async (ctx) => {
-        const out = selectUntriedCandidates({
-          pool,
-          rounds: ctx.rounds,
-          candidateLimit: args.candidateLimit,
-          toInput: (row) => ({
-            id: row.id,
-            input: row,
-          }),
-        });
-        process.stdout.write(
-          `[round ${ctx.iteration}] candidates=${out.map((v) => v.id).join(',') || '(none)'}\n`,
-        );
-        return out;
-      },
+      stopWhenNoAccept: () => true,
     },
-  });
-
-  if (result.mode === 'single') {
-    process.stdout.write(`planner selected single mode. final="${result.result.final}"\n`);
-    if (args.outPath !== undefined) {
-      const outPath = resolve(args.outPath);
-      await writeFile(outPath, JSON.stringify(result, null, 2), 'utf8');
-      process.stdout.write(`saved report: ${outPath}\n`);
-    }
-    return;
-  }
-
-  const rounds = result.result.rounds;
-  process.stdout.write(
-    `completed rounds=${rounds.length} accepted=${result.result.acceptedHistory.length}\n`,
+    process.argv.slice(2),
   );
-  for (const [roundIndex, round] of rounds.entries()) {
-    process.stdout.write(`- round ${roundIndex}\n`);
-    for (const row of round.results) {
-      const summary =
-        row.snapshot === undefined
-          ? 'no-snapshot'
-          : `lintErrors=${fmt(row.snapshot.metrics.lintErrors)} lintWarnings=${fmt(row.snapshot.metrics.lintWarnings)} testFailures=${row.snapshot.metrics.testFailures} commandFailures=${row.snapshot.metrics.commandFailures}`;
-      process.stdout.write(
-        `  ${row.candidate.id}: ${row.accepted ? 'accepted' : 'rejected'} ${summary} reasons=${row.reasons.join('|')}\n`,
-      );
-    }
-  }
-
-  const best = rounds.at(-1)?.bestAccepted;
-  if (best !== undefined) {
-    process.stdout.write(`best accepted candidate: ${best.candidate.id}\n`);
-  } else {
-    process.stdout.write('no accepted candidate\n');
-  }
-  process.stdout.write(
-    `final baseline: lintErrors=${fmt(result.result.finalBaseline.metrics.lintErrors)} lintWarnings=${fmt(result.result.finalBaseline.metrics.lintWarnings)} testFailures=${result.result.finalBaseline.metrics.testFailures} commandFailures=${result.result.finalBaseline.metrics.commandFailures}\n`,
-  );
-
-  if (args.outPath !== undefined) {
-    const outPath = resolve(args.outPath);
-    await writeFile(outPath, JSON.stringify(result, null, 2), 'utf8');
-    process.stdout.write(`saved report: ${outPath}\n`);
-  }
 };
 
 const makeMockLongRunPlan = (
   goal: string,
   maxIterations: number,
-): RLMPlannerPlan => makeDefaultLintLongRunPlan(goal, maxIterations, 'metric_lint');
+): RLMPlannerPlan =>
+  makeDefaultLintLongRunPlan(goal, maxIterations, 'metric_lint');
+
+const parseArgs = (argv: string[]): CLIArgs => {
+  const kv = parseCLIKeyValues(argv);
+  const plannerProvider = parsePlannerProvider(kv.get('planner-provider'));
+
+  return {
+    repoDir: resolve(kv.get('repo') ?? process.cwd()),
+    buildRootDir: resolve(
+      kv.get('build-root') ?? join(process.cwd(), '.rlm-worktrees'),
+    ),
+    plannerProvider,
+    model: kv.get('model') ?? 'gpt-4.1-mini',
+    goal:
+      kv.get('goal') ??
+      'lint errors と warnings を減らしつつ test failures を 0 に保つ',
+    maxIterations: parsePositiveInt(kv.get('max-iterations'), 2),
+    candidateLimit: parsePositiveInt(kv.get('candidate-limit'), 3),
+    lintCommand: kv.get('lint-command') ?? 'pnpm exec eslint . --format json',
+    ...(kv.get('test-command') !== undefined
+      ? { testCommand: kv.get('test-command') }
+      : {}),
+    ...(kv.get('candidates-file') !== undefined
+      ? { candidatesFile: resolve(kv.get('candidates-file') as string) }
+      : {}),
+    ...(kv.get('out') !== undefined ? { outPath: kv.get('out') } : {}),
+  };
+};
 
 const loadCandidates = async (args: CLIArgs): Promise<LintCandidate[]> => {
   if (args.candidatesFile === undefined) {
@@ -271,26 +147,52 @@ const loadCandidates = async (args: CLIArgs): Promise<LintCandidate[]> => {
   return out;
 };
 
-const parseArgs = (argv: string[]): CLIArgs => {
-  const kv = parseCLIKeyValues(argv);
-  const plannerProvider = parsePlannerProvider(kv.get('planner-provider'));
-  return {
-    repoDir: resolve(kv.get('repo') ?? process.cwd()),
-    buildRootDir: resolve(kv.get('build-root') ?? join(process.cwd(), '.rlm-worktrees')),
-    plannerProvider,
-    model: kv.get('model') ?? 'gpt-4.1-mini',
-    goal: kv.get('goal') ?? 'lint errors と warnings を減らしつつ test failures を 0 に保つ',
-    maxIterations: parsePositiveInt(kv.get('max-iterations'), 2),
-    candidateLimit: parsePositiveInt(kv.get('candidate-limit'), 3),
-    lintCommand: kv.get('lint-command') ?? 'pnpm exec eslint . --format json',
-    ...(kv.get('test-command') !== undefined
-      ? { testCommand: kv.get('test-command') }
-      : {}),
-    ...(kv.get('candidates-file') !== undefined
-      ? { candidatesFile: resolve(kv.get('candidates-file') as string) }
-      : {}),
-    ...(kv.get('out') !== undefined ? { outPath: kv.get('out') } : {}),
-  };
+const evaluateCandidate = async (
+  args: CLIArgs,
+  candidate: LintCandidate,
+  io: { writer: (line: string) => void; errorWriter: (line: string) => void },
+): Promise<LintMetrics> => {
+  io.writer(`[candidate] ${candidate.id} evaluate`);
+  const sourceDir = join(args.buildRootDir, `_wt_${sanitizeCandidateId(candidate.id)}`);
+
+  let commandFailures = 0;
+  try {
+    await prepareWorktree({
+      repoDir: args.repoDir,
+      sourceDir,
+    });
+    await applyCandidateEdits(sourceDir, candidate.edits ?? []);
+
+    for (const command of candidate.commands) {
+      const run = await runShell(command, sourceDir);
+      if (run.exitCode !== 0) {
+        commandFailures += 1;
+        io.errorWriter(
+          `[candidate] ${candidate.id} command failed (${run.exitCode}): ${command}`,
+        );
+      }
+    }
+
+    const lintRun = await runShell(args.lintCommand, sourceDir);
+    const lintSummary = parseLintSummary(lintRun);
+    if (lintSummary === undefined) {
+      commandFailures += 1;
+    }
+
+    const testFailures = await evaluateTestFailures(args.testCommand, sourceDir);
+    return {
+      lintErrors: lintSummary?.lintErrors ?? Number.POSITIVE_INFINITY,
+      lintWarnings: lintSummary?.lintWarnings ?? Number.POSITIVE_INFINITY,
+      fixableErrors: lintSummary?.fixableErrors ?? Number.POSITIVE_INFINITY,
+      fixableWarnings: lintSummary?.fixableWarnings ?? Number.POSITIVE_INFINITY,
+      filesWithProblems:
+        lintSummary?.filesWithProblems ?? Number.POSITIVE_INFINITY,
+      testFailures,
+      commandFailures,
+    };
+  } finally {
+    await cleanupWorktree(args.repoDir, sourceDir);
+  }
 };
 
 const prepareWorktree = async (args: {
@@ -304,7 +206,10 @@ const prepareWorktree = async (args: {
   });
 };
 
-const cleanupWorktree = async (repoDir: string, sourceDir: string): Promise<void> => {
+const cleanupWorktree = async (
+  repoDir: string,
+  sourceDir: string,
+): Promise<void> => {
   await cleanupDetachedWorktree({
     runCommand,
     repoDir,
@@ -468,7 +373,18 @@ const pickMetric = (metrics: LintMetrics, key: string): number => {
   }
 };
 
+const formatLintMetrics = (metrics: Record<string, number>): string =>
+  [
+    `lintErrors=${fmt(metrics.lintErrors)}`,
+    `lintWarnings=${fmt(metrics.lintWarnings)}`,
+    `testFailures=${fmtInt(metrics.testFailures)}`,
+    `commandFailures=${fmtInt(metrics.commandFailures)}`,
+  ].join(' ');
+
 const fmt = (value: number): string =>
   Number.isFinite(value) ? value.toFixed(4) : String(value);
+
+const fmtInt = (value: number): string =>
+  Number.isFinite(value) ? String(Math.trunc(value)) : String(value);
 
 await main();
