@@ -38,7 +38,7 @@ export interface PlannerConstraintSpec {
   comparator: 'lt' | 'lte' | 'gt' | 'gte' | 'eq';
   value: number;
   symbol?: string;
-  source?: 'absolute' | 'delta';
+  source?: 'absolute' | 'delta' | 'ratio' | 'delta_ratio';
 }
 
 export interface PlannerLongRunSpec {
@@ -186,7 +186,7 @@ const PLANNER_RESPONSE_FORMAT: LLMResponseFormat = {
                   symbol: { type: ['string', 'null'] },
                   source: {
                     type: ['string', 'null'],
-                    enum: ['absolute', 'delta', null],
+                    enum: ['absolute', 'delta', 'ratio', 'delta_ratio', null],
                   },
                 },
               },
@@ -601,7 +601,10 @@ const coerceLongRunSpec = (input: unknown): PlannerLongRunSpec | undefined => {
       }
       const symbol = pickString(row.symbol);
       const source =
-        row.source === 'absolute' || row.source === 'delta'
+        row.source === 'absolute' ||
+        row.source === 'delta' ||
+        row.source === 'ratio' ||
+        row.source === 'delta_ratio'
           ? row.source
           : undefined;
       constraints.push({

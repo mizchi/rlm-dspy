@@ -85,13 +85,18 @@ export {
 } from './improve/longRun.ts';
 
 export type {
+  ApplyTextEditsResult,
   FlatbuffersBenchmarkSummary,
   FlatbuffersCandidate,
+  FlatbuffersTextEdit,
 } from './integrations/flatbuffers.ts';
 export {
+  applyTextEdits,
   buildFlatbuffersConfigureArgs,
   extractFlatbuffersBenchmarkSummary,
+  makeDefaultFlatbuffersLongRunPlan,
   makeDefaultFlatbuffersCandidates,
+  normalizeFlatbuffersPlan,
   sanitizeCandidateId,
 } from './integrations/flatbuffers.ts';
 

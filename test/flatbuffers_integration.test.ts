@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'vitest';
 import {
+  applyTextEdits,
   buildFlatbuffersConfigureArgs,
   extractFlatbuffersBenchmarkSummary,
+  makeDefaultFlatbuffersLongRunPlan,
   makeDefaultFlatbuffersCandidates,
+  normalizeFlatbuffersPlan,
   sanitizeCandidateId,
 } from '../src/integrations/flatbuffers.ts';
 
@@ -63,6 +66,7 @@ describe('flatbuffers integration helpers', () => {
     const ids = candidates.map((row) => row.id);
     expect(new Set(ids).size).toBe(ids.length);
     expect(ids).toContain('o3');
+    expect(candidates.some((row) => (row.edits?.length ?? 0) > 0)).toBe(true);
   });
 
   test('cmake configure 引数を組み立てられる', () => {
@@ -77,5 +81,107 @@ describe('flatbuffers integration helpers', () => {
     expect(args).toContain('-B');
     expect(args).toContain('/repo/build-x');
     expect(args).toContain('-DFLATBUFFERS_BUILD_BENCHMARKS=ON');
+  });
+
+  test('applyTextEdits で source 候補の編集を適用できる', () => {
+    const src = ['hello', 'TARGET', 'world'].join('\n');
+    const out = applyTextEdits(src, [
+      {
+        file: 'dummy.txt',
+        search: 'TARGET',
+        replace: 'REPLACED',
+      },
+    ]);
+
+    expect(out.changed).toBe(true);
+    expect(out.content).toContain('REPLACED');
+  });
+
+  test('applyTextEdits は search 未一致なら changed=false', () => {
+    const out = applyTextEdits('abc', [
+      {
+        file: 'dummy.txt',
+        search: 'zzz',
+        replace: 'x',
+      },
+    ]);
+    expect(out.changed).toBe(false);
+  });
+
+  test('single plan は flatbuffers 用 long_run plan に補正される', () => {
+    const normalized = normalizeFlatbuffersPlan(
+      {
+        kind: 'rlm_plan',
+        version: 1,
+        mode: 'single',
+        task: 'optimize',
+      },
+      'goal',
+      3,
+    );
+
+    expect(normalized.mode).toBe('long_run');
+    expect(normalized.longRun?.objectives.length).toBeGreaterThan(0);
+    expect(normalized.longRun?.maxIterations).toBe(3);
+  });
+
+  test('unsupported objective だけの plan は default にフォールバックする', () => {
+    const normalized = normalizeFlatbuffersPlan(
+      {
+        kind: 'rlm_plan',
+        version: 1,
+        mode: 'long_run',
+        task: 'optimize',
+        longRun: {
+          objectives: [
+            {
+              key: 'unknownMetric',
+              direction: 'minimize',
+              symbol: 'metric_flatbuffers',
+            },
+          ],
+        },
+      },
+      'goal-fallback',
+      2,
+    );
+
+    const fallback = makeDefaultFlatbuffersLongRunPlan('goal-fallback', 2);
+    expect(normalized.mode).toBe('long_run');
+    expect(normalized.longRun?.objectives).toEqual(fallback.longRun?.objectives);
+  });
+
+  test('guard 制約が不足している plan にデフォルト制約を補う', () => {
+    const normalized = normalizeFlatbuffersPlan(
+      {
+        kind: 'rlm_plan',
+        version: 1,
+        mode: 'long_run',
+        task: 'optimize',
+        longRun: {
+          objectives: [
+            {
+              key: 'encodeNs',
+              direction: 'minimize',
+              symbol: 'x',
+            },
+          ],
+          constraints: [
+            {
+              key: 'buildFailures',
+              comparator: 'eq',
+              value: 0,
+            },
+          ],
+        },
+      },
+      'goal',
+      4,
+    );
+
+    const constraints = normalized.longRun?.constraints ?? [];
+    expect(constraints.some((row) => row.key === 'decodeNs')).toBe(true);
+    expect(constraints.some((row) => row.key === 'useNs')).toBe(true);
+    expect(normalized.longRun?.objectives[0]?.symbol).toBe('metric_flatbuffers');
   });
 });

@@ -140,6 +140,9 @@ const report = await runImprovementLoop({
 console.log(report.bestAccepted?.candidate.id);
 ```
 
+`constraints[].source` は `absolute | delta | ratio | delta_ratio` を使えます。
+`ratio` は `metric / baseline`、`delta_ratio` は `(metric - baseline) / baseline` です。
+
 ## Plan Mode（追加）
 
 既存エージェントと組み合わせる場合は `runPlannedRLM` で、

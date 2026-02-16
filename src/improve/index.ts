@@ -11,7 +11,7 @@ export interface ImprovementConstraint {
   key: string;
   comparator: MetricComparator;
   value: number;
-  source?: 'absolute' | 'delta';
+  source?: 'absolute' | 'delta' | 'ratio' | 'delta_ratio';
 }
 
 export interface ImprovementPolicy {
@@ -217,10 +217,16 @@ const validateSnapshot = (
       typeof baselineMetric === 'number' && Number.isFinite(baselineMetric)
         ? baselineMetric
         : 0;
-    const target =
-      constraint.source === 'delta'
-        ? metric - baselineValue
-        : metric;
+    const target = toConstraintTarget({
+      source: constraint.source ?? 'absolute',
+      metric,
+      baseline: baselineValue,
+    });
+    if (!Number.isFinite(target)) {
+      invalid = true;
+      reasons.push(`invalid_constraint_source:${constraint.key}`);
+      continue;
+    }
     if (!compareMetric(target, constraint.comparator, constraint.value)) {
       reasons.push(`constraint_failed:${constraint.key}`);
     }
@@ -272,6 +278,29 @@ const dedupeReasons = (reasons: string[]): string[] => {
     out.push(reason);
   }
   return out;
+};
+
+const toConstraintTarget = (args: {
+  source: NonNullable<ImprovementConstraint['source']>;
+  metric: number;
+  baseline: number;
+}): number => {
+  switch (args.source) {
+    case 'absolute':
+      return args.metric;
+    case 'delta':
+      return args.metric - args.baseline;
+    case 'ratio':
+      return args.baseline === 0 ? Number.NaN : args.metric / args.baseline;
+    case 'delta_ratio':
+      return args.baseline === 0
+        ? Number.NaN
+        : (args.metric - args.baseline) / args.baseline;
+    default: {
+      const never: never = args.source;
+      throw new Error(`unreachable source: ${String(never)}`);
+    }
+  }
 };
 
 const hasMissingMetricReason = (reasons: string[]): boolean =>

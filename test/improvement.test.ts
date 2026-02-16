@@ -197,4 +197,68 @@ describe('runImprovementLoop', () => {
     expect(report.results[1]?.error).toContain('failed to run benchmark');
     expect(report.results[1]?.reasons).toContain('evaluation_error');
   });
+
+  test('constraint source=ratio で baseline 比の劣化を制約できる', async () => {
+    const policy: ImprovementPolicy = {
+      objectives: [{ key: 'encodeNs', direction: 'minimize' }],
+      constraints: [
+        { key: 'decodeNs', comparator: 'lte', value: 1.1, source: 'ratio' },
+      ],
+    };
+    const baseline: MetricSnapshot = {
+      metrics: {
+        encodeNs: 100,
+        decodeNs: 10,
+      },
+    };
+    const candidates: ImprovementCandidate<string>[] = [
+      { id: 'safe', input: 'A' },
+      { id: 'regress', input: 'B' },
+    ];
+
+    const report = await runImprovementLoop({
+      baseline,
+      candidates,
+      policy,
+      evaluate: async (candidate) =>
+        candidate.id === 'safe'
+          ? { metrics: { encodeNs: 95, decodeNs: 10.5 } }
+          : { metrics: { encodeNs: 90, decodeNs: 12.5 } },
+    });
+
+    expect(report.results[0]?.accepted).toBe(true);
+    expect(report.results[1]?.accepted).toBe(false);
+    expect(report.results[1]?.reasons).toContain('constraint_failed:decodeNs');
+  });
+
+  test('constraint source=delta_ratio で改善率を制約できる', async () => {
+    const policy: ImprovementPolicy = {
+      objectives: [{ key: 'throughput', direction: 'maximize' }],
+      constraints: [
+        { key: 'throughput', comparator: 'gte', value: 0.05, source: 'delta_ratio' },
+      ],
+    };
+    const baseline: MetricSnapshot = {
+      metrics: {
+        throughput: 100,
+      },
+    };
+    const candidates: ImprovementCandidate<string>[] = [
+      { id: 'small', input: 'A' },
+      { id: 'good', input: 'B' },
+    ];
+
+    const report = await runImprovementLoop({
+      baseline,
+      candidates,
+      policy,
+      evaluate: async (candidate) =>
+        candidate.id === 'small'
+          ? { metrics: { throughput: 103 } }
+          : { metrics: { throughput: 106 } },
+    });
+
+    expect(report.results[0]?.accepted).toBe(false);
+    expect(report.results[1]?.accepted).toBe(true);
+  });
 });

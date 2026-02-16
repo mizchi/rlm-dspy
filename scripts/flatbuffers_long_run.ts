@@ -1,12 +1,16 @@
 import { execFile } from 'node:child_process';
-import { writeFile } from 'node:fs/promises';
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { promisify } from 'node:util';
 import {
+  applyTextEdits,
+  makeDefaultFlatbuffersLongRunPlan,
   makeDefaultFlatbuffersCandidates,
   buildFlatbuffersConfigureArgs,
   extractFlatbuffersBenchmarkSummary,
+  normalizeFlatbuffersPlan,
   sanitizeCandidateId,
+  type FlatbuffersTextEdit,
 } from '../src/integrations/flatbuffers.ts';
 import { MockLLMProvider } from '../src/llm/MockLLMProvider.ts';
 import { OpenAIProvider } from '../src/llm/OpenAIProvider.ts';
@@ -38,6 +42,7 @@ interface FlatbuffersCandidateInput {
   id: string;
   description: string;
   cmakeArgs: string[];
+  edits?: FlatbuffersTextEdit[];
 }
 
 interface CandidateMetrics {
@@ -75,9 +80,18 @@ const main = async (): Promise<void> => {
       `[candidate] ${candidate.id} configure+build+bench at ${buildDir}\n`,
     );
 
+    let cleanup = async (): Promise<void> => {};
     try {
+      const setup = await prepareCandidateSource({
+        repoDir: args.repoDir,
+        buildRootDir: args.buildRootDir,
+        candidate,
+      });
+      const sourceDir = setup.sourceDir;
+      cleanup = setup.cleanup;
+
       await runCommand('cmake', buildFlatbuffersConfigureArgs({
-        sourceDir: args.repoDir,
+        sourceDir,
         buildDir,
         candidateCMakeArgs: candidate.cmakeArgs,
       }));
@@ -116,6 +130,8 @@ const main = async (): Promise<void> => {
       };
       metricsCache.set(key, failed);
       return failed;
+    } finally {
+      await cleanup();
     }
   };
 
@@ -195,6 +211,7 @@ const main = async (): Promise<void> => {
               id: row.id,
               description: row.description,
               cmakeArgs: row.cmakeArgs,
+              ...(row.edits !== undefined ? { edits: row.edits } : {}),
             },
           }));
         process.stdout.write(
@@ -234,7 +251,7 @@ const main = async (): Promise<void> => {
     }
   }
 
-  const best = result.result.acceptedHistory.at(-1);
+  const best = rounds.at(-1)?.bestAccepted;
   if (best !== undefined) {
     process.stdout.write(`best accepted candidate: ${best.candidate.id}\n`);
   } else {
@@ -254,84 +271,13 @@ const main = async (): Promise<void> => {
 const makeMockLongRunPlan = (
   goal: string,
   maxIterations: number,
-) => ({
-  kind: 'rlm_plan',
-  version: 1,
-  mode: 'long_run',
-  task: goal,
-  profile: 'hybrid',
-  symbols: ['metric_flatbuffers'],
-  longRun: {
-    objectives: [
-      { key: 'encodeNs', direction: 'minimize', symbol: 'metric_flatbuffers', weight: 1 },
-      { key: 'decodeNs', direction: 'minimize', symbol: 'metric_flatbuffers', weight: 0.25 },
-      { key: 'useNs', direction: 'minimize', symbol: 'metric_flatbuffers', weight: 0.25 },
-    ],
-    constraints: [
-      { key: 'buildFailures', comparator: 'eq', value: 0, symbol: 'metric_flatbuffers' },
-    ],
-    maxIterations,
-    stopWhenNoAccept: true,
-    minScoreDelta: 0.01,
-  },
-}) satisfies RLMPlannerPlan;
+) => makeDefaultFlatbuffersLongRunPlan(goal, maxIterations);
 
 const normalizePlanForFlatbuffers = (
   plan: RLMPlannerPlan,
   goal: string,
   maxIterations: number,
-): RLMPlannerPlan => {
-  if (plan.mode !== 'long_run') {
-    return plan;
-  }
-  if (plan.longRun === undefined) {
-    return makeMockLongRunPlan(goal, maxIterations);
-  }
-
-  const supportedKeys = new Set<string>([
-    'encodeNs',
-    'decodeNs',
-    'useNs',
-    'buildFailures',
-  ]);
-  const objectives = plan.longRun.objectives.filter((row) =>
-    supportedKeys.has(row.key),
-  );
-  if (objectives.length === 0) {
-    return makeMockLongRunPlan(goal, maxIterations);
-  }
-
-  const constraints = (plan.longRun.constraints ?? [])
-    .filter((row) => supportedKeys.has(row.key))
-    .map((row) => ({
-      ...row,
-      symbol: row.symbol ?? 'metric_flatbuffers',
-    }));
-
-  return {
-    ...plan,
-    symbols: ['metric_flatbuffers'],
-    longRun: {
-      ...plan.longRun,
-      objectives: objectives.map((row) => ({
-        ...row,
-        symbol: 'metric_flatbuffers',
-      })),
-      constraints:
-        constraints.length > 0
-          ? constraints
-          : [
-              {
-                key: 'buildFailures',
-                comparator: 'eq',
-                value: 0,
-                symbol: 'metric_flatbuffers',
-              },
-            ],
-      maxIterations: plan.longRun.maxIterations ?? maxIterations,
-    },
-  };
-};
+): RLMPlannerPlan => normalizeFlatbuffersPlan(plan, goal, maxIterations);
 
 const parseArgs = (argv: string[]): CLIArgs => {
   const kv = new Map<string, string>();
@@ -403,6 +349,63 @@ const runCommand = async (
   });
 };
 
+const prepareCandidateSource = async (args: {
+  repoDir: string;
+  buildRootDir: string;
+  candidate: FlatbuffersCandidateInput;
+}): Promise<{ sourceDir: string; cleanup: () => Promise<void> }> => {
+  const edits = args.candidate.edits ?? [];
+  if (edits.length === 0) {
+    return {
+      sourceDir: args.repoDir,
+      cleanup: async () => {},
+    };
+  }
+
+  const sourceDir = join(
+    args.buildRootDir,
+    `_wt_${sanitizeCandidateId(args.candidate.id)}`,
+  );
+  // Stale worktree cleanup. Ignore errors here.
+  try {
+    await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', sourceDir]);
+  } catch {
+    // ignored
+  }
+  await rm(sourceDir, { recursive: true, force: true });
+  await runCommand('git', ['-C', args.repoDir, 'worktree', 'add', '--detach', sourceDir, 'HEAD']);
+
+  try {
+    const byFile = new Map<string, FlatbuffersTextEdit[]>();
+    for (const edit of edits) {
+      const list = byFile.get(edit.file) ?? [];
+      list.push(edit);
+      byFile.set(edit.file, list);
+    }
+    for (const [file, fileEdits] of byFile) {
+      const fullPath = join(sourceDir, file);
+      const src = await readFile(fullPath, 'utf8');
+      const out = applyTextEdits(src, fileEdits);
+      if (!out.changed) {
+        throw new Error(`source edit had no effect: ${file}`);
+      }
+      await writeFile(fullPath, out.content, 'utf8');
+    }
+  } catch (cause) {
+    await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', sourceDir]).catch(() => {});
+    await rm(sourceDir, { recursive: true, force: true });
+    throw cause;
+  }
+
+  return {
+    sourceDir,
+    cleanup: async () => {
+      await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', sourceDir]).catch(() => {});
+      await rm(sourceDir, { recursive: true, force: true });
+    },
+  };
+};
+
 const asRecord = (input: unknown): Record<string, unknown> => {
   if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
     return input as Record<string, unknown>;
@@ -425,10 +428,25 @@ const coerceCandidateInput = (input: unknown): FlatbuffersCandidateInput => {
   const cmakeArgs = Array.isArray(row.cmakeArgs)
     ? row.cmakeArgs.filter((v): v is string => typeof v === 'string')
     : [];
+  const edits = Array.isArray(row.edits)
+    ? row.edits
+        .filter(
+          (v): v is Record<string, unknown> =>
+            typeof v === 'object' && v !== null && !Array.isArray(v),
+        )
+        .map((v) => ({
+          file: typeof v.file === 'string' ? v.file : '',
+          search: typeof v.search === 'string' ? v.search : '',
+          replace: typeof v.replace === 'string' ? v.replace : '',
+          ...(typeof v.all === 'boolean' ? { all: v.all } : {}),
+        }))
+        .filter((v) => v.file !== '' && v.search !== '')
+    : [];
   return {
     id,
     description,
     cmakeArgs,
+    ...(edits.length > 0 ? { edits } : {}),
   };
 };
 
