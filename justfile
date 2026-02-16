@@ -21,4 +21,7 @@ eval-ablation *args:
 flatbuffers-longrun *args:
   pnpm node scripts/flatbuffers_long_run.ts {{args}}
 
+lint-longrun *args:
+  pnpm node scripts/lint_long_run.ts {{args}}
+
 ci: test check

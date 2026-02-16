@@ -230,6 +230,35 @@ const report = await runLongImprovementLoop({
 });
 ```
 
+### Lint 修正で long-run を試す
+
+```bash
+pnpm lint:longrun -- \
+  --repo /path/to/your/repo \
+  --lint-command "pnpm exec eslint . --format json" \
+  --test-command "pnpm test" \
+  --candidate-limit 4 \
+  --max-iterations 2 \
+  --out eval/report.lint.longrun.json
+```
+
+候補を外部定義する場合（`--candidates-file`）:
+
+```json
+[
+  {
+    "id": "eslint-fix",
+    "description": "default --fix",
+    "commands": ["pnpm exec eslint . --fix"]
+  },
+  {
+    "id": "eslint-fix-problem",
+    "description": "problem only",
+    "commands": ["pnpm exec eslint . --fix --fix-type problem"]
+  }
+]
+```
+
 ## セットアップ
 
 ```bash

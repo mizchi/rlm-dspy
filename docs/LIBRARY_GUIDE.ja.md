@@ -251,3 +251,15 @@ FlatBuffers 実験用の実行スクリプト:
 ```bash
 pnpm flatbuffers:longrun
 ```
+
+Lint 修正の長時間ラン実行スクリプト:
+
+```bash
+pnpm lint:longrun -- \
+  --repo /path/to/repo \
+  --lint-command "pnpm exec eslint . --format json" \
+  --test-command "pnpm test" \
+  --candidate-limit 4 \
+  --max-iterations 2 \
+  --out eval/report.lint.longrun.json
+```

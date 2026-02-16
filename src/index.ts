@@ -101,6 +101,19 @@ export {
 } from './integrations/flatbuffers.ts';
 
 export type {
+  LintCandidate,
+  LintMetricSummary,
+  LintTextEdit,
+} from './integrations/lint.ts';
+export {
+  extractESLintSummary,
+  makeDefaultLintCandidates,
+  makeDefaultLintLongRunPlan,
+  normalizeLintPlan,
+  sanitizeCandidateId as sanitizeLintCandidateId,
+} from './integrations/lint.ts';
+
+export type {
   CreateRLMPlanArgs,
   PlannedLongRunHooks,
   PlannedRLMResult,
