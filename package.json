@@ -1,10 +1,19 @@
 {
   "name": "@mizchi/rlm-dspy",
   "version": "0.1.0",
-  "private": true,
+  "private": false,
   "type": "module",
   "description": "RLM (Recursive Language Models) TypeScript prototype",
   "main": "./src/index.ts",
+  "files": [
+    "src",
+    "README.md",
+    "docs",
+    "LICENSE*"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
