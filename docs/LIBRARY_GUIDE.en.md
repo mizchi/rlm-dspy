@@ -76,6 +76,10 @@ From `src/index.ts`:
   - `runLongImprovementLoop`
   - `buildPolicyFromMetricSymbols`
   - `collectMetricSnapshotBySymbols`
+- Planner:
+  - `createRLMPlan`
+  - `runPlannedRLM`
+  - `compilePlanToRLMOptions`
 
 ## 5. What it is good at
 
@@ -220,3 +224,24 @@ const out = await rlm('ignored', llm, {
 ```
 
 For long-running optimization, use `runLongImprovementLoop` so each iteration keeps the same minimize/maximize objective directions.
+
+## 13. Plan Mode (agent integration)
+
+`runPlannedRLM` first converts natural language input into an `RLMPlannerPlan`, then enters runtime execution.
+This makes it easy to connect an existing agent's planning phase to RLM execution.
+
+```ts
+import { runPlannedRLM } from './src/index.ts';
+
+const out = await runPlannedRLM({
+  input: 'run iterative optimization to reduce open issues',
+  prompt: 'ignored',
+  plannerLLM,
+  symbols,
+  longRun: {
+    baseline: { metrics: { openIssues: 100 } },
+    initialState: { repo: 'mizchi/rlm-dspy' },
+    generateCandidates: async () => proposeCandidates(),
+  },
+});
+```

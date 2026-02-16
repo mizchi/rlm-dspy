@@ -76,6 +76,10 @@ console.log(out.trace.slice(-5));
   - `runLongImprovementLoop`
   - `buildPolicyFromMetricSymbols`
   - `collectMetricSnapshotBySymbols`
+- Planner:
+  - `createRLMPlan`
+  - `runPlannedRLM`
+  - `compilePlanToRLMOptions`
 
 ## 5. 何が得意か
 
@@ -220,3 +224,24 @@ const out = await rlm('ignored', llm, {
 ```
 
 長時間で改善を回す場合は `runLongImprovementLoop` を使い、`minimize/maximize` 方向を維持しながら反復します。
+
+## 13. Plan Mode（エージェント接続）
+
+`runPlannedRLM` は、自然言語入力をいったん `RLMPlannerPlan` に落としてから実行に入るため、
+既存エージェントの「計画フェーズ」と RLM ランタイムを接続しやすくします。
+
+```ts
+import { runPlannedRLM } from './src/index.ts';
+
+const out = await runPlannedRLM({
+  input: 'open issue を減らす方向で回したい',
+  prompt: 'ignored',
+  plannerLLM,
+  symbols,
+  longRun: {
+    baseline: { metrics: { openIssues: 100 } },
+    initialState: { repo: 'mizchi/rlm-dspy' },
+    generateCandidates: async () => proposeCandidates(),
+  },
+});
+```

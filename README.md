@@ -140,6 +140,36 @@ const report = await runImprovementLoop({
 console.log(report.bestAccepted?.candidate.id);
 ```
 
+## Plan Mode（追加）
+
+既存エージェントと組み合わせる場合は `runPlannedRLM` で、
+
+1. 入力を LLM で `RLMPlannerPlan` に変換  
+2. plan に従って `runRLM` または `runLongImprovementLoop` を実行
+
+できます。
+
+```ts
+import { runPlannedRLM, OpenAIProvider } from './src/index.ts';
+
+const planner = new OpenAIProvider({ model: 'gpt-4.1-mini' });
+const executor = new OpenAIProvider({ model: 'gpt-4.1-mini' });
+
+const out = await runPlannedRLM({
+  input: 'GitHub issue数を返して',
+  prompt: 'ignored',
+  plannerLLM: planner,
+  executorLLM: executor,
+  symbols: {
+    github_open_issues: async () => 42,
+  },
+});
+
+if (out.mode === 'single') {
+  console.log(out.result.final);
+}
+```
+
 長時間ラン（例: GitHub open issue を減らす）では `runLongImprovementLoop` を使います。
 
 ```ts

@@ -83,3 +83,20 @@ export {
   collectMetricSnapshotBySymbols,
   runLongImprovementLoop,
 } from './improve/longRun.ts';
+
+export type {
+  CreateRLMPlanArgs,
+  PlannedLongRunHooks,
+  PlannedRLMResult,
+  PlannerConstraintSpec,
+  PlannerLongRunSpec,
+  PlannerMode,
+  PlannerObjectiveSpec,
+  RLMPlannerPlan,
+  RunPlannedRLMArgs,
+} from './planner/index.ts';
+export {
+  compilePlanToRLMOptions,
+  createRLMPlan,
+  runPlannedRLM,
+} from './planner/index.ts';
