@@ -28,6 +28,7 @@ const DEFAULT_SYSTEM_PROMPT = [
   'env.prompt body is hidden; read via DSL ops only.',
   'If the task asks sum/合計 of CSV numeric column, prefer sum_csv_column then finalize.',
   'If the task asks CSV row filtering, use doc_select_rows with comparator/value, then doc_project_columns.',
+  'If mapping many chunks, you may use sub_map.concurrency (>1) to reduce latency.',
   'If the task asks 文中の単語を一つ, prefer pick_word(index=1) then finalize.',
   'If the task asks extract TOKEN=value style text, prefer find + slice_prompt + finalize.',
   'Few-shot example A (extract token):',
@@ -113,6 +114,7 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
         in: { type: ['string', 'null'] },
         queryTemplate: { type: ['string', 'null'] },
         limit: { type: ['number', 'string', 'null'] },
+        concurrency: { type: ['number', 'string', 'null'] },
         sep: { type: ['string', 'null'] },
         path: { type: ['string', 'null'] },
         value: {
@@ -379,6 +381,13 @@ const buildInitialMetadata = (
       columns: ['score'],
       out: 'lines',
     },
+    subMap: {
+      op: 'sub_map',
+      in: 'chunks',
+      queryTemplate: '{{item}}',
+      out: 'mapped',
+      concurrency: 2,
+    },
     sumCsv: { op: 'sum_csv_column', column: 1, delimiter: ',', out: 'total' },
     pickWord: { op: 'pick_word', index: 1, out: 'picked' },
     extractToken: { op: 'find', needle: 'TOKEN=', out: 'hits' },
@@ -545,6 +554,9 @@ const coerceDSL = (raw: unknown): DSL => {
         out: asString(row.out ?? 'mapped', 'sub_map.out'),
         ...(row.limit !== undefined && row.limit !== null
           ? { limit: asNumber(row.limit, 'sub_map.limit') }
+          : {}),
+        ...(row.concurrency !== undefined && row.concurrency !== null
+          ? { concurrency: asNumber(row.concurrency, 'sub_map.concurrency') }
           : {}),
       };
 

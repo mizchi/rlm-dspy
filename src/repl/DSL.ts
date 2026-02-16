@@ -55,6 +55,7 @@ export type DSL =
       queryTemplate: string;
       out: string;
       limit?: number;
+      concurrency?: number;
     }
   | { op: 'reduce_join'; in: string; sep: string; out: string }
   | { op: 'set'; path: string; value: unknown }

@@ -284,6 +284,37 @@ describe('rlm', () => {
     expect(out.final).toBe('bob|carol');
   });
 
+  test('sub_map の concurrency を文字列入力から coerce できる', async () => {
+    const llm = new MockLLMProvider({
+      scriptsByDepth: {
+        0: [
+          dsl({ op: 'chunk_newlines', maxLines: 1, out: 'chunks' }),
+          dsl({
+            op: 'sub_map',
+            in: 'chunks',
+            queryTemplate: 'sum: {{item}}',
+            out: 'parts',
+            concurrency: '2',
+          }),
+          dsl({ op: 'reduce_join', in: 'parts', sep: '|', out: 'answer' }),
+          dsl({ op: 'finalize', from: 'answer' }),
+        ],
+        1: [
+          dsl({ op: 'set', path: 'scratch.answer', value: 'sub' }),
+          dsl({ op: 'set', path: 'scratch.answer', value: 'sub' }),
+        ],
+      },
+      fallbackByDepth: {
+        1: dsl({ op: 'set', path: 'scratch.answer', value: 'sub' }),
+      },
+    });
+
+    const out = await rlm('a\nb', llm, {
+      enableEarlyStopHeuristic: true,
+    });
+    expect(out.final).toBe('sub|sub');
+  });
+
   test('ヒューリスティック後処理で TOKEN 値を補正できる', async () => {
     const llm = new MockLLMProvider({
       scriptsByDepth: {

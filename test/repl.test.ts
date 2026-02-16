@@ -223,4 +223,34 @@ describe('DSLRepl', () => {
 
     expect(env.final).toBe('alice');
   });
+
+  test('sub_map は concurrency 指定で並列実行しつつ順序を維持する', async () => {
+    const env = makeEnv('a\nb\nc');
+    let inflight = 0;
+    let maxInflight = 0;
+    const repl = new DSLRepl(env, {
+      subRLM: async (_query, options) => {
+        inflight += 1;
+        maxInflight = Math.max(maxInflight, inflight);
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        inflight -= 1;
+        return String(options?.prompt ?? '');
+      },
+    });
+
+    await repl.exec({ op: 'chunk_newlines', maxLines: 1, out: 'chunks' }, 1);
+    await repl.exec(
+      {
+        op: 'sub_map',
+        in: 'chunks',
+        queryTemplate: 'Q: {{item}}',
+        out: 'mapped',
+        concurrency: 2,
+      },
+      2,
+    );
+
+    expect(maxInflight).toBe(2);
+    expect(env.scratch.mapped).toEqual(['a', 'b', 'c']);
+  });
 });

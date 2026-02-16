@@ -431,13 +431,16 @@ export class DSLRepl {
           0,
           Math.min(dsl.limit ?? items.length, items.length),
         );
-        const out: string[] = [];
-        for (let i = 0; i < maxItems; i += 1) {
+        const concurrency = dsl.concurrency ?? 1;
+        if (!Number.isFinite(concurrency) || concurrency <= 0) {
+          throw new Error('sub_map.concurrency must be > 0');
+        }
+        const maxConcurrency = Math.max(1, Math.floor(concurrency));
+        const out = await mapWithConcurrency(maxItems, maxConcurrency, async (i) => {
           const item = items[i] ?? '';
           const query = dsl.queryTemplate.replaceAll('{{item}}', item);
-          const result = await this.hooks.subRLM(query, { prompt: item });
-          out.push(result);
-        }
+          return this.hooks.subRLM(query, { prompt: item });
+        });
         this.env.scratch[dsl.out] = out;
         return JSON.stringify({
           out: dsl.out,
@@ -527,6 +530,30 @@ const normalizeCsvComparator = (
     return input;
   }
   throw new Error('doc_select_rows.comparator must be eq|contains|gt|gte|lt|lte');
+};
+
+const mapWithConcurrency = async <T>(
+  count: number,
+  concurrency: number,
+  fn: (index: number) => Promise<T>,
+): Promise<T[]> => {
+  if (count <= 0) {
+    return [];
+  }
+
+  const out: T[] = new Array(count);
+  let cursor = 0;
+  const workers = Math.min(concurrency, count);
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (cursor < count) {
+        const idx = cursor;
+        cursor += 1;
+        out[idx] = await fn(idx);
+      }
+    }),
+  );
+  return out;
 };
 
 const setByPath = (
