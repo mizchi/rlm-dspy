@@ -143,6 +143,18 @@ console.log(report.bestAccepted?.candidate.id);
 `constraints[].source` は `absolute | delta | ratio | delta_ratio` を使えます。
 `ratio` は `metric / baseline`、`delta_ratio` は `(metric - baseline) / baseline` です。
 
+### 共通ハーネス（一般化）
+
+`flatbuffers` と `lint` の long-run スクリプト共通部分は、以下に切り出しています。
+
+- `createMetricSymbol`:
+  - `metricKey` と `candidate` を受けて、評価関数を呼び、数値メトリクスを返す
+  - candidate ごとのキャッシュにも対応
+- `selectUntriedCandidates`:
+  - 既に評価済みの candidate id を除外して次ラウンド候補を作る
+- `parseCLIKeyValues` / `parsePlannerProvider` / `parsePositiveInt`:
+  - CLI引数パースの共通化
+
 ## Plan Mode（追加）
 
 既存エージェントと組み合わせる場合は `runPlannedRLM` で、

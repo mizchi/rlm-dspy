@@ -2,6 +2,7 @@ import type {
   PlannerConstraintSpec,
   RLMPlannerPlan,
 } from '../planner/index.ts';
+import type { TextEdit } from '../util/textEdits.ts';
 
 export interface LintMetricSummary {
   lintErrors: number;
@@ -11,12 +12,7 @@ export interface LintMetricSummary {
   filesWithProblems: number;
 }
 
-export interface LintTextEdit {
-  file: string;
-  search: string;
-  replace: string;
-  all?: boolean;
-}
+export type LintTextEdit = TextEdit;
 
 export interface LintCandidate {
   id: string;

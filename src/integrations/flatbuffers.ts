@@ -2,6 +2,12 @@ import type {
   PlannerConstraintSpec,
   RLMPlannerPlan,
 } from '../planner/index.ts';
+import {
+  applyTextEdits as applyTextEditsBase,
+  type ApplyTextEditsResult,
+  type TextEdit,
+} from '../util/textEdits.ts';
+export type { ApplyTextEditsResult } from '../util/textEdits.ts';
 
 export interface FlatbuffersBenchmarkSummary {
   encodeNs: number;
@@ -16,17 +22,7 @@ export interface FlatbuffersCandidate {
   edits?: FlatbuffersTextEdit[];
 }
 
-export interface FlatbuffersTextEdit {
-  file: string;
-  search: string;
-  replace: string;
-  all?: boolean;
-}
-
-export interface ApplyTextEditsResult {
-  content: string;
-  changed: boolean;
-}
+export type FlatbuffersTextEdit = TextEdit;
 
 export const sanitizeCandidateId = (input: string): string => {
   const slug = input
@@ -256,29 +252,7 @@ export const extractFlatbuffersBenchmarkSummary = (
 export const applyTextEdits = (
   content: string,
   edits: FlatbuffersTextEdit[],
-): ApplyTextEditsResult => {
-  let next = content;
-  let changed = false;
-  for (const edit of edits) {
-    if (edit.search === '') {
-      continue;
-    }
-    if (edit.all) {
-      if (!next.includes(edit.search)) {
-        continue;
-      }
-      next = next.split(edit.search).join(edit.replace);
-      changed = true;
-      continue;
-    }
-    if (!next.includes(edit.search)) {
-      continue;
-    }
-    next = next.replace(edit.search, edit.replace);
-    changed = true;
-  }
-  return { content: next, changed };
-};
+): ApplyTextEditsResult => applyTextEditsBase(content, edits);
 
 const withDefaultFlatbuffersGuards = (
   constraints: PlannerConstraintSpec[],

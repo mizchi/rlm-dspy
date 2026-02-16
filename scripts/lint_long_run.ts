@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { MockLLMProvider } from '../src/llm/MockLLMProvider.ts';
@@ -18,7 +18,22 @@ import {
   runPlannedRLM,
   type RLMPlannerPlan,
 } from '../src/planner/index.ts';
+import {
+  createMetricSymbol,
+  selectUntriedCandidates,
+} from '../src/improve/harness.ts';
 import { parseOneJSON } from '../src/util/json.ts';
+import {
+  parseCLIKeyValues,
+  parsePlannerProvider,
+  parsePositiveInt,
+  type PlannerProvider,
+} from '../src/util/cli.ts';
+import { applyTextEdits } from '../src/util/textEdits.ts';
+import {
+  cleanupDetachedWorktree,
+  prepareDetachedWorktree,
+} from '../src/util/worktree.ts';
 import type { ExternalSymbolFn } from '../src/rlm/types.ts';
 
 const execFileAsync = promisify(execFile);
@@ -26,7 +41,7 @@ const execFileAsync = promisify(execFile);
 interface CLIArgs {
   repoDir: string;
   buildRootDir: string;
-  plannerProvider: 'mock' | 'openai';
+  plannerProvider: PlannerProvider;
   model: string;
   goal: string;
   maxIterations: number;
@@ -125,13 +140,14 @@ const main = async (): Promise<void> => {
   );
 
   const symbols: Record<string, ExternalSymbolFn> = {
-    metric_lint: async (call) => {
-      const argsRow = asRecord(call.args);
-      const metricKey = asString(argsRow.metricKey, 'metricKey');
-      const candidate = coerceCandidate(argsRow.candidate ?? call.input ?? baselineInput);
-      const metrics = await evaluateCandidate(candidate);
-      return pickMetric(metrics, metricKey);
-    },
+    metric_lint: createMetricSymbol({
+      baselineInput,
+      coerceCandidate,
+      evaluateCandidate,
+      pickMetric,
+      cache: metricsCache,
+      cacheKey: (candidate) => JSON.stringify(candidate),
+    }),
   };
 
   const prompt = [
@@ -168,19 +184,15 @@ const main = async (): Promise<void> => {
       maxIterations: args.maxIterations,
       stopWhenNoAccept: true,
       generateCandidates: async (ctx) => {
-        const tried = new Set<string>();
-        for (const round of ctx.rounds) {
-          for (const row of round.results) {
-            tried.add(row.candidate.id);
-          }
-        }
-        const out = pool
-          .filter((row) => !tried.has(row.id))
-          .slice(0, args.candidateLimit)
-          .map((row) => ({
+        const out = selectUntriedCandidates({
+          pool,
+          rounds: ctx.rounds,
+          candidateLimit: args.candidateLimit,
+          toInput: (row) => ({
             id: row.id,
             input: row,
-          }));
+          }),
+        });
         process.stdout.write(
           `[round ${ctx.iteration}] candidates=${out.map((v) => v.id).join(',') || '(none)'}\n`,
         );
@@ -260,49 +272,16 @@ const loadCandidates = async (args: CLIArgs): Promise<LintCandidate[]> => {
 };
 
 const parseArgs = (argv: string[]): CLIArgs => {
-  const kv = new Map<string, string>();
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) {
-      continue;
-    }
-    const eq = token.indexOf('=');
-    if (eq >= 0) {
-      kv.set(token.slice(2, eq), token.slice(eq + 1));
-      continue;
-    }
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (next !== undefined && !next.startsWith('--')) {
-      kv.set(key, next);
-      i += 1;
-    } else {
-      kv.set(key, 'true');
-    }
-  }
-
-  const plannerProvider = kv.get('planner-provider') ?? 'mock';
-  if (plannerProvider !== 'mock' && plannerProvider !== 'openai') {
-    throw new Error(`--planner-provider must be mock|openai, got: ${plannerProvider}`);
-  }
-  const parsePositive = (raw: string | undefined, fallback: number): number => {
-    if (raw === undefined) {
-      return fallback;
-    }
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) {
-      throw new Error(`invalid positive number: ${raw}`);
-    }
-    return Math.floor(n);
-  };
+  const kv = parseCLIKeyValues(argv);
+  const plannerProvider = parsePlannerProvider(kv.get('planner-provider'));
   return {
     repoDir: resolve(kv.get('repo') ?? process.cwd()),
     buildRootDir: resolve(kv.get('build-root') ?? join(process.cwd(), '.rlm-worktrees')),
     plannerProvider,
     model: kv.get('model') ?? 'gpt-4.1-mini',
     goal: kv.get('goal') ?? 'lint errors と warnings を減らしつつ test failures を 0 に保つ',
-    maxIterations: parsePositive(kv.get('max-iterations'), 2),
-    candidateLimit: parsePositive(kv.get('candidate-limit'), 3),
+    maxIterations: parsePositiveInt(kv.get('max-iterations'), 2),
+    candidateLimit: parsePositiveInt(kv.get('candidate-limit'), 3),
     lintCommand: kv.get('lint-command') ?? 'pnpm exec eslint . --format json',
     ...(kv.get('test-command') !== undefined
       ? { testCommand: kv.get('test-command') }
@@ -318,14 +297,19 @@ const prepareWorktree = async (args: {
   repoDir: string;
   sourceDir: string;
 }): Promise<void> => {
-  await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', args.sourceDir]).catch(() => {});
-  await rm(args.sourceDir, { recursive: true, force: true });
-  await runCommand('git', ['-C', args.repoDir, 'worktree', 'add', '--detach', args.sourceDir, 'HEAD']);
+  await prepareDetachedWorktree({
+    runCommand,
+    repoDir: args.repoDir,
+    worktreeDir: args.sourceDir,
+  });
 };
 
 const cleanupWorktree = async (repoDir: string, sourceDir: string): Promise<void> => {
-  await runCommand('git', ['-C', repoDir, 'worktree', 'remove', '--force', sourceDir]).catch(() => {});
-  await rm(sourceDir, { recursive: true, force: true });
+  await cleanupDetachedWorktree({
+    runCommand,
+    repoDir,
+    worktreeDir: sourceDir,
+  });
 };
 
 const applyCandidateEdits = async (
@@ -350,33 +334,6 @@ const applyCandidateEdits = async (
     }
     await writeFile(fullPath, out.content, 'utf8');
   }
-};
-
-const applyTextEdits = (
-  content: string,
-  edits: LintTextEdit[],
-): { content: string; changed: boolean } => {
-  let next = content;
-  let changed = false;
-  for (const edit of edits) {
-    if (edit.search === '') {
-      continue;
-    }
-    if (edit.all) {
-      if (!next.includes(edit.search)) {
-        continue;
-      }
-      next = next.split(edit.search).join(edit.replace);
-      changed = true;
-      continue;
-    }
-    if (!next.includes(edit.search)) {
-      continue;
-    }
-    next = next.replace(edit.search, edit.replace);
-    changed = true;
-  }
-  return { content: next, changed };
 };
 
 const evaluateTestFailures = async (
@@ -459,13 +416,6 @@ const asRecord = (input: unknown): Record<string, unknown> => {
     return input as Record<string, unknown>;
   }
   return {};
-};
-
-const asString = (input: unknown, label: string): string => {
-  if (typeof input === 'string' && input !== '') {
-    return input;
-  }
-  throw new Error(`${label} must be string`);
 };
 
 const coerceCandidate = (input: unknown): LintCandidate => {

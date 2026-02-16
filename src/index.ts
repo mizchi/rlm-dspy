@@ -85,6 +85,16 @@ export {
 } from './improve/longRun.ts';
 
 export type {
+  CandidateRoundLike,
+  CreateMetricSymbolArgs,
+  SelectUntriedCandidatesArgs,
+} from './improve/harness.ts';
+export {
+  createMetricSymbol,
+  selectUntriedCandidates,
+} from './improve/harness.ts';
+
+export type {
   ApplyTextEditsResult,
   FlatbuffersBenchmarkSummary,
   FlatbuffersCandidate,
@@ -129,3 +139,13 @@ export {
   createRLMPlan,
   runPlannedRLM,
 } from './planner/index.ts';
+
+export type { PlannerProvider } from './util/cli.ts';
+export {
+  parseCLIKeyValues,
+  parsePlannerProvider,
+  parsePositiveInt,
+} from './util/cli.ts';
+
+export type { ApplyTextEditsResult as GenericApplyTextEditsResult, TextEdit } from './util/textEdits.ts';
+export { applyTextEdits as applyGenericTextEdits } from './util/textEdits.ts';

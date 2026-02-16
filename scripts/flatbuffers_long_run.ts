@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, rm, writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, join } from 'node:path';
 import { promisify } from 'node:util';
 import {
@@ -19,7 +19,21 @@ import {
   runPlannedRLM,
   type RLMPlannerPlan,
 } from '../src/planner/index.ts';
+import {
+  createMetricSymbol,
+  selectUntriedCandidates,
+} from '../src/improve/harness.ts';
 import { parseOneJSON } from '../src/util/json.ts';
+import {
+  parseCLIKeyValues,
+  parsePlannerProvider,
+  parsePositiveInt,
+  type PlannerProvider,
+} from '../src/util/cli.ts';
+import {
+  cleanupDetachedWorktree,
+  prepareDetachedWorktree,
+} from '../src/util/worktree.ts';
 import type { ExternalSymbolFn } from '../src/rlm/types.ts';
 
 const execFileAsync = promisify(execFile);
@@ -27,7 +41,7 @@ const execFileAsync = promisify(execFile);
 interface CLIArgs {
   repoDir: string;
   buildRootDir: string;
-  plannerProvider: 'mock' | 'openai';
+  plannerProvider: PlannerProvider;
   model: string;
   goal: string;
   maxIterations: number;
@@ -146,15 +160,14 @@ const main = async (): Promise<void> => {
   );
 
   const symbols: Record<string, ExternalSymbolFn> = {
-    metric_flatbuffers: async (call) => {
-      const argsRow = asRecord(call.args);
-      const metricKey = asString(argsRow.metricKey, 'metricKey');
-      const candidate = coerceCandidateInput(
-        argsRow.candidate ?? call.input ?? baselineInput,
-      );
-      const metrics = await evaluateCandidate(candidate);
-      return pickMetric(metrics, metricKey);
-    },
+    metric_flatbuffers: createMetricSymbol({
+      baselineInput,
+      coerceCandidate: coerceCandidateInput,
+      evaluateCandidate,
+      pickMetric,
+      cache: metricsCache,
+      cacheKey: (candidate) => JSON.stringify(candidate),
+    }),
   };
 
   const planned = await createRLMPlan({
@@ -196,16 +209,11 @@ const main = async (): Promise<void> => {
       maxIterations: args.maxIterations,
       stopWhenNoAccept: true,
       generateCandidates: async (ctx) => {
-        const tried = new Set<string>();
-        for (const round of ctx.rounds) {
-          for (const row of round.results) {
-            tried.add(row.candidate.id);
-          }
-        }
-        const out = pool
-          .filter((row) => !tried.has(row.id))
-          .slice(0, args.candidateLimit)
-          .map((row) => ({
+        const out = selectUntriedCandidates({
+          pool,
+          rounds: ctx.rounds,
+          candidateLimit: args.candidateLimit,
+          toInput: (row) => ({
             id: row.id,
             input: {
               id: row.id,
@@ -213,7 +221,8 @@ const main = async (): Promise<void> => {
               cmakeArgs: row.cmakeArgs,
               ...(row.edits !== undefined ? { edits: row.edits } : {}),
             },
-          }));
+          }),
+        });
         process.stdout.write(
           `[round ${ctx.iteration}] candidates=${out.map((v) => v.id).join(',') || '(none)'}\n`,
         );
@@ -280,42 +289,8 @@ const normalizePlanForFlatbuffers = (
 ): RLMPlannerPlan => normalizeFlatbuffersPlan(plan, goal, maxIterations);
 
 const parseArgs = (argv: string[]): CLIArgs => {
-  const kv = new Map<string, string>();
-  for (let i = 0; i < argv.length; i += 1) {
-    const token = argv[i];
-    if (!token.startsWith('--')) {
-      continue;
-    }
-    const eq = token.indexOf('=');
-    if (eq >= 0) {
-      kv.set(token.slice(2, eq), token.slice(eq + 1));
-      continue;
-    }
-    const key = token.slice(2);
-    const next = argv[i + 1];
-    if (next !== undefined && !next.startsWith('--')) {
-      kv.set(key, next);
-      i += 1;
-    } else {
-      kv.set(key, 'true');
-    }
-  }
-
-  const plannerProvider = kv.get('planner-provider') ?? 'mock';
-  if (plannerProvider !== 'mock' && plannerProvider !== 'openai') {
-    throw new Error(`--planner-provider must be mock|openai, got: ${plannerProvider}`);
-  }
-
-  const parsePositive = (raw: string | undefined, fallback: number): number => {
-    if (raw === undefined) {
-      return fallback;
-    }
-    const n = Number(raw);
-    if (!Number.isFinite(n) || n <= 0) {
-      throw new Error(`invalid positive number: ${raw}`);
-    }
-    return Math.floor(n);
-  };
+  const kv = parseCLIKeyValues(argv);
+  const plannerProvider = parsePlannerProvider(kv.get('planner-provider'));
 
   return {
     repoDir: resolve(kv.get('repo') ?? '/Users/mz/ghq/github.com/google/flatbuffers'),
@@ -328,10 +303,10 @@ const parseArgs = (argv: string[]): CLIArgs => {
     goal:
       kv.get('goal') ??
       'flatbuffers C++ benchmark を改善したい。encode/decode/use を小さくする',
-    maxIterations: parsePositive(kv.get('max-iterations'), 2),
-    repetitions: parsePositive(kv.get('repetitions'), 3),
-    jobs: parsePositive(kv.get('jobs'), 8),
-    candidateLimit: parsePositive(kv.get('candidate-limit'), 3),
+    maxIterations: parsePositiveInt(kv.get('max-iterations'), 2),
+    repetitions: parsePositiveInt(kv.get('repetitions'), 3),
+    jobs: parsePositiveInt(kv.get('jobs'), 8),
+    candidateLimit: parsePositiveInt(kv.get('candidate-limit'), 3),
     benchmarkFilter:
       kv.get('benchmark-filter') ??
       'BM_Flatbuffers_Encode|BM_Flatbuffers_Decode|BM_Flatbuffers_Use',
@@ -366,14 +341,11 @@ const prepareCandidateSource = async (args: {
     args.buildRootDir,
     `_wt_${sanitizeCandidateId(args.candidate.id)}`,
   );
-  // Stale worktree cleanup. Ignore errors here.
-  try {
-    await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', sourceDir]);
-  } catch {
-    // ignored
-  }
-  await rm(sourceDir, { recursive: true, force: true });
-  await runCommand('git', ['-C', args.repoDir, 'worktree', 'add', '--detach', sourceDir, 'HEAD']);
+  await prepareDetachedWorktree({
+    runCommand,
+    repoDir: args.repoDir,
+    worktreeDir: sourceDir,
+  });
 
   try {
     const byFile = new Map<string, FlatbuffersTextEdit[]>();
@@ -392,32 +364,24 @@ const prepareCandidateSource = async (args: {
       await writeFile(fullPath, out.content, 'utf8');
     }
   } catch (cause) {
-    await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', sourceDir]).catch(() => {});
-    await rm(sourceDir, { recursive: true, force: true });
+    await cleanupDetachedWorktree({
+      runCommand,
+      repoDir: args.repoDir,
+      worktreeDir: sourceDir,
+    });
     throw cause;
   }
 
   return {
     sourceDir,
     cleanup: async () => {
-      await runCommand('git', ['-C', args.repoDir, 'worktree', 'remove', '--force', sourceDir]).catch(() => {});
-      await rm(sourceDir, { recursive: true, force: true });
+      await cleanupDetachedWorktree({
+        runCommand,
+        repoDir: args.repoDir,
+        worktreeDir: sourceDir,
+      });
     },
   };
-};
-
-const asRecord = (input: unknown): Record<string, unknown> => {
-  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
-    return input as Record<string, unknown>;
-  }
-  return {};
-};
-
-const asString = (input: unknown, label: string): string => {
-  if (typeof input === 'string' && input !== '') {
-    return input;
-  }
-  throw new Error(`${label} must be string`);
 };
 
 const coerceCandidateInput = (input: unknown): FlatbuffersCandidateInput => {
@@ -448,6 +412,13 @@ const coerceCandidateInput = (input: unknown): FlatbuffersCandidateInput => {
     cmakeArgs,
     ...(edits.length > 0 ? { edits } : {}),
   };
+};
+
+const asRecord = (input: unknown): Record<string, unknown> => {
+  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  return {};
 };
 
 const pickMetric = (metrics: CandidateMetrics, key: string): number => {
