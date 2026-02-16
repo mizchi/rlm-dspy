@@ -23,6 +23,8 @@ export {
 } from './doc/DocStore.ts';
 
 export type {
+  ExternalSymbolCall,
+  ExternalSymbolFn,
   RLMEnv,
   RLMOptions,
   RLMResultPack,
@@ -66,3 +68,18 @@ export type {
   RunImprovementLoopArgs,
 } from './improve/index.ts';
 export { runImprovementLoop, scoreSnapshot } from './improve/index.ts';
+
+export type {
+  BuildPolicyFromMetricSymbolsArgs,
+  CollectMetricSnapshotBySymbolsArgs,
+  ConstraintMetricSymbol,
+  LongRunImprovementReport,
+  LongRunIterationContext,
+  ObjectiveMetricSymbol,
+  RunLongImprovementLoopArgs,
+} from './improve/longRun.ts';
+export {
+  buildPolicyFromMetricSymbols,
+  collectMetricSnapshotBySymbols,
+  runLongImprovementLoop,
+} from './improve/longRun.ts';

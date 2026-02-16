@@ -21,11 +21,12 @@ import { InMemoryDocStore } from '../doc/DocStore.ts';
 const DEFAULT_SYSTEM_PROMPT = [
   'You are an RLM root controller.',
   'Output exactly one JSON object and nothing else.',
-  'Allowed ops: prompt_meta, doc_parse, doc_select_section, doc_table_sum, doc_select_rows, doc_project_columns, slice_prompt, find, chunk_newlines, chunk_tokens, sum_csv_column, pick_word, sub_map, reduce_join, set, finalize.',
+  'Allowed ops: prompt_meta, doc_parse, doc_select_section, doc_table_sum, doc_select_rows, doc_project_columns, slice_prompt, find, chunk_newlines, chunk_tokens, sum_csv_column, pick_word, call_symbol, sub_map, reduce_join, set, finalize.',
   'Required fields by op must be present and correctly typed.',
   'Do not invent fields like env, action, tool, code.',
   'To finish, first put final text in scratch via set, then call {"op":"finalize","from":"<key>"} exactly.',
   'env.prompt body is hidden; read via DSL ops only.',
+  'When external symbols are available, call them via {"op":"call_symbol","symbol":"<name>","out":"<key>"} and then finalize from that key.',
   'If the task asks sum/合計 of CSV numeric column, prefer sum_csv_column then finalize.',
   'If the task asks CSV row filtering, use doc_select_rows with comparator/value, then doc_project_columns.',
   'If mapping many chunks, you may use sub_map.concurrency (>1) to reduce latency.',
@@ -78,6 +79,7 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
             'chunk_tokens',
             'sum_csv_column',
             'pick_word',
+            'call_symbol',
             'sub_map',
             'reduce_join',
             'set',
@@ -114,6 +116,9 @@ const DSL_RESPONSE_FORMAT: LLMResponseFormat = {
         column: { type: ['number', 'string', 'null'] },
         delimiter: { type: ['string', 'null'] },
         index: { type: ['number', 'string', 'null'] },
+        symbol: { type: ['string', 'null'] },
+        args: { type: ['object', 'null'] },
+        input: {},
         in: { type: ['string', 'null'] },
         queryTemplate: { type: ['string', 'null'] },
         limit: { type: ['number', 'string', 'null'] },
@@ -205,11 +210,32 @@ const runInternal = async (args: RunInternalArgs): Promise<RLMResultPack> => {
     },
   });
 
-  const repl = new DSLRepl(env, { subRLM }, {
-    metaPreviewChars: runtime.metaPreviewChars,
-    requirePromptReadBeforeFinalize:
-      runtime.opts.requirePromptReadBeforeFinalize ?? false,
-  });
+  const repl = new DSLRepl(
+    env,
+    {
+      subRLM,
+      callSymbol: async (symbol, payload) => {
+        const fn = runtime.opts.symbols?.[symbol];
+        if (fn === undefined) {
+          throw new Error(`unknown symbol: ${symbol}`);
+        }
+        return fn({
+          symbol,
+          prompt: env.prompt,
+          promptId: env.promptId,
+          depth: env.budget.depth,
+          scratch: env.scratch,
+          ...(payload.args !== undefined ? { args: payload.args } : {}),
+          ...(payload.input !== undefined ? { input: payload.input } : {}),
+        });
+      },
+    },
+    {
+      metaPreviewChars: runtime.metaPreviewChars,
+      requirePromptReadBeforeFinalize:
+        runtime.opts.requirePromptReadBeforeFinalize ?? false,
+    },
+  );
 
   const history: ChatMessage[] = [
     {
@@ -361,6 +387,10 @@ const buildInitialMetadata = (
   if (opts.task !== undefined) {
     meta.task = opts.task;
   }
+  const symbolNames = Object.keys(opts.symbols ?? {});
+  if (symbolNames.length > 0) {
+    meta.symbols = symbolNames;
+  }
   meta.hints = {
     docParse: { op: 'doc_parse', format: 'auto', out: 'doc' },
     docSelectSection: {
@@ -393,6 +423,15 @@ const buildInitialMetadata = (
     },
     sumCsv: { op: 'sum_csv_column', column: 1, delimiter: ',', out: 'total' },
     pickWord: { op: 'pick_word', index: 1, out: 'picked' },
+    ...(symbolNames.length > 0
+      ? {
+          callSymbol: {
+            op: 'call_symbol',
+            symbol: symbolNames[0],
+            out: 'answer',
+          },
+        }
+      : {}),
     extractToken: { op: 'find', needle: 'TOKEN=', out: 'hits' },
     finalize: { op: 'finalize', from: 'answer_or_total' },
   };
@@ -592,6 +631,17 @@ const coerceDSL = (raw: unknown): DSL => {
         out: asString(row.out ?? 'picked', 'pick_word.out'),
       };
 
+    case 'call_symbol':
+      return {
+        op,
+        symbol: asString(row.symbol ?? row.name, 'call_symbol.symbol'),
+        out: asString(row.out ?? 'answer', 'call_symbol.out'),
+        ...(row.args !== undefined && row.args !== null
+          ? { args: asRecord(row.args, 'call_symbol.args') }
+          : {}),
+        ...(row.input !== undefined ? { input: row.input } : {}),
+      };
+
     case 'reduce_join':
       return {
         op,
@@ -705,6 +755,16 @@ const asColumnList = (
   return input.map((item, index) =>
     asStringOrNumber(item, `${label}[${index}]`),
   );
+};
+
+const asRecord = (
+  input: unknown,
+  label: string,
+): Record<string, unknown> => {
+  if (typeof input === 'object' && input !== null && !Array.isArray(input)) {
+    return input as Record<string, unknown>;
+  }
+  throw new Error(`${label} must be object`);
 };
 
 const asCsvComparator = (

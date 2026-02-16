@@ -9,6 +9,20 @@ export interface DocStoreFactoryInput {
   depth: number;
 }
 
+export interface ExternalSymbolCall {
+  symbol: string;
+  prompt: string;
+  promptId: string;
+  depth: number;
+  scratch: Record<string, unknown>;
+  args?: Record<string, unknown>;
+  input?: unknown;
+}
+
+export type ExternalSymbolFn = (
+  call: ExternalSymbolCall,
+) => Promise<unknown> | unknown;
+
 export interface RLMEnv {
   prompt: string;
   promptId: string;
@@ -32,6 +46,7 @@ export interface RLMOptions {
   enableEarlyStopHeuristic?: boolean;
   maxConsecutiveErrorsForEarlyStop?: number;
   docStoreFactory?: (input: DocStoreFactoryInput) => DocStore;
+  symbols?: Record<string, ExternalSymbolFn>;
 }
 
 export interface SubRLMOptions {

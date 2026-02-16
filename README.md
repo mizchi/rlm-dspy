@@ -18,6 +18,7 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
 
 - `runRLM` で Root ループを実行
 - `DSLRepl` が `doc_parse/doc_select_section/doc_table_sum/doc_select_rows/doc_project_columns` と `slice/find/chunk/sub_map/reduce_join/finalize` を実行
+- 外部注入シンボルを `call_symbol` で DSL から呼び出し可能
 - `LLMProvider` 抽象 + `OpenAIProvider` / `MockLLMProvider`
 - 文書I/Oは `DocStore` 抽象で差し替え可能（`InMemoryDocStore` / `MCPDocStore`）
 - `response_format (json_schema)` を利用し、DSL 出力を強制
@@ -137,6 +138,45 @@ const report = await runImprovementLoop({
 });
 
 console.log(report.bestAccepted?.candidate.id);
+```
+
+長時間ラン（例: GitHub open issue を減らす）では `runLongImprovementLoop` を使います。
+
+```ts
+import {
+  buildPolicyFromMetricSymbols,
+  collectMetricSnapshotBySymbols,
+  runLongImprovementLoop,
+} from './src/index.ts';
+
+const objectives = [
+  {
+    key: 'openIssues',
+    direction: 'minimize' as const,
+    read: async ({ state }: { state: { repo: string } }) =>
+      getOpenIssues(state.repo),
+  },
+];
+const policy = buildPolicyFromMetricSymbols({
+  objectives,
+  minScoreDelta: 1,
+});
+
+const report = await runLongImprovementLoop({
+  baseline: { metrics: { openIssues: await getOpenIssues('mizchi/rlm-dspy') } },
+  policy,
+  initialState: { repo: 'mizchi/rlm-dspy' },
+  maxIterations: 30,
+  stopWhenNoAccept: true,
+  generateCandidates: async () => proposeCandidatesFromAgent(),
+  evaluate: async (candidate, ctx) =>
+    collectMetricSnapshotBySymbols({
+      candidate,
+      iteration: ctx.iteration,
+      state: ctx.state,
+      objectives,
+    }),
+});
 ```
 
 ## セットアップ

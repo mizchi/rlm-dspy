@@ -56,6 +56,13 @@ export type DSL =
       out: string;
     }
   | {
+      op: 'call_symbol';
+      symbol: string;
+      out: string;
+      args?: Record<string, unknown>;
+      input?: unknown;
+    }
+  | {
       op: 'sub_map';
       in: string;
       queryTemplate: string;

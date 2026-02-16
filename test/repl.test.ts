@@ -279,4 +279,48 @@ describe('DSLRepl', () => {
 
     expect(env.scratch.chunks).toEqual(['a b c', 'c d e']);
   });
+
+  test('call_symbol で外部注入シンボルを呼び出せる', async () => {
+    const env = makeEnv('prompt');
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+      callSymbol: async (symbol, payload) => {
+        expect(symbol).toBe('double');
+        expect(payload.args).toEqual({ value: 21 });
+        return Number((payload.args as { value: number }).value) * 2;
+      },
+    });
+
+    await repl.exec(
+      {
+        op: 'call_symbol',
+        symbol: 'double',
+        args: { value: 21 },
+        out: 'answer',
+      } as never,
+      1,
+    );
+    await repl.exec({ op: 'finalize', from: 'answer' }, 2);
+
+    expect(env.scratch.answer).toBe(42);
+    expect(env.final).toBe('42');
+  });
+
+  test('call_symbol は hook 未設定なら失敗する', async () => {
+    const env = makeEnv('prompt');
+    const repl = new DSLRepl(env, {
+      subRLM: async () => 'unused',
+    });
+
+    await expect(
+      repl.exec(
+        {
+          op: 'call_symbol',
+          symbol: 'missing',
+          out: 'answer',
+        } as never,
+        1,
+      ),
+    ).rejects.toThrow('call_symbol hook is not configured');
+  });
 });

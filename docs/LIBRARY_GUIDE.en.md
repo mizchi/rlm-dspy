@@ -73,6 +73,9 @@ From `src/index.ts`:
 - Metric-driven improvement:
   - `runImprovementLoop`
   - `scoreSnapshot`
+  - `runLongImprovementLoop`
+  - `buildPolicyFromMetricSymbols`
+  - `collectMetricSnapshotBySymbols`
 
 ## 5. What it is good at
 
@@ -202,3 +205,18 @@ const report = await runImprovementLoop({
 
 console.log(report.bestAccepted?.candidate.id);
 ```
+
+## 12. External symbol injection (DSL) and long runs
+
+If you provide `RLMOptions.symbols`, DSL can call them via `call_symbol`.
+
+```ts
+const out = await rlm('ignored', llm, {
+  symbols: {
+    github_open_issues: async () => 123,
+  },
+});
+// DSL from LLM: {"op":"call_symbol","symbol":"github_open_issues","out":"issues"}
+```
+
+For long-running optimization, use `runLongImprovementLoop` so each iteration keeps the same minimize/maximize objective directions.

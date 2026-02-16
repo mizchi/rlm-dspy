@@ -73,6 +73,9 @@ console.log(out.trace.slice(-5));
 - 指標駆動改善:
   - `runImprovementLoop`
   - `scoreSnapshot`
+  - `runLongImprovementLoop`
+  - `buildPolicyFromMetricSymbols`
+  - `collectMetricSnapshotBySymbols`
 
 ## 5. 何が得意か
 
@@ -202,3 +205,18 @@ const report = await runImprovementLoop({
 
 console.log(report.bestAccepted?.candidate.id);
 ```
+
+## 12. 外部シンボル注入（DSL）と長時間ラン
+
+`RLMOptions.symbols` に外部関数を注入すると、DSL の `call_symbol` から呼べます。
+
+```ts
+const out = await rlm('ignored', llm, {
+  symbols: {
+    github_open_issues: async () => 123,
+  },
+});
+// LLM側DSL: {"op":"call_symbol","symbol":"github_open_issues","out":"issues"}
+```
+
+長時間で改善を回す場合は `runLongImprovementLoop` を使い、`minimize/maximize` 方向を維持しながら反復します。

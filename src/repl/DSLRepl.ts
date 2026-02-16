@@ -13,6 +13,13 @@ import {
 
 interface DSLReplHooks {
   subRLM: SubRLMFn;
+  callSymbol?: (
+    symbol: string,
+    payload: {
+      args?: Record<string, unknown>;
+      input?: unknown;
+    },
+  ) => Promise<unknown>;
 }
 
 interface DSLReplOptions {
@@ -459,6 +466,32 @@ export class DSLRepl {
         });
       }
 
+      case 'call_symbol': {
+        if (typeof dsl.symbol !== 'string' || dsl.symbol === '') {
+          throw new Error('call_symbol.symbol must be non-empty string');
+        }
+        if (typeof dsl.out !== 'string' || dsl.out === '') {
+          throw new Error('call_symbol.out must be non-empty string');
+        }
+        if (dsl.args !== undefined && !isPlainRecord(dsl.args)) {
+          throw new Error('call_symbol.args must be object');
+        }
+        if (this.hooks.callSymbol === undefined) {
+          throw new Error('call_symbol hook is not configured');
+        }
+
+        const value = await this.hooks.callSymbol(dsl.symbol, {
+          ...(dsl.args !== undefined ? { args: dsl.args } : {}),
+          ...(dsl.input !== undefined ? { input: dsl.input } : {}),
+        });
+        this.env.scratch[dsl.out] = value;
+        return JSON.stringify({
+          out: dsl.out,
+          symbol: dsl.symbol,
+          valueType: value === null ? 'null' : typeof value,
+        });
+      }
+
       case 'sub_map': {
         if (typeof dsl.in !== 'string' || dsl.in === '') {
           throw new Error('sub_map.in must be non-empty string');
@@ -681,3 +714,8 @@ const getScratchValue = (
   }
   return cursor;
 };
+
+const isPlainRecord = (
+  value: unknown,
+): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);

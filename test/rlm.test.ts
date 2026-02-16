@@ -350,4 +350,24 @@ describe('rlm', () => {
     expect(out.final).toBe('ok');
     expect(llm.calls).toHaveLength(1);
   });
+
+  test('call_symbol で外部注入シンボルを使って finalize できる', async () => {
+    const llm = new MockLLMProvider({
+      scriptsByDepth: {
+        0: [
+          dsl({ op: 'call_symbol', symbol: 'github_open_issues', out: 'issues' }),
+          dsl({ op: 'finalize', from: 'issues' }),
+        ],
+      },
+    });
+
+    const out = await rlm('prompt', llm, {
+      symbols: {
+        github_open_issues: async () => 123,
+      },
+      budget: { maxSteps: 4 },
+    });
+
+    expect(out.final).toBe('123');
+  });
 });
