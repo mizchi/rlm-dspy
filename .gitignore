@@ -1,3 +1,4 @@
 node_modules/
 *.log
 eval/report*.json
+moonbit/_build/

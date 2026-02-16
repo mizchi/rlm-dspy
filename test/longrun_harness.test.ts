@@ -24,6 +24,17 @@ describe('longrun harness helpers', () => {
     expect(out.map((row) => row.id)).toEqual(['b', 'c']);
   });
 
+  test('selectUntriedCandidates は candidateLimit が0以下なら空配列を返す', () => {
+    const out = selectUntriedCandidates({
+      pool: [{ id: 'a', value: 1 }],
+      rounds: [],
+      candidateLimit: 0,
+      toInput: (row) => ({ id: row.id, input: { value: row.value } }),
+    });
+
+    expect(out).toEqual([]);
+  });
+
   test('createMetricSymbol は candidate を評価して metricKey を返す', async () => {
     const symbol = createMetricSymbol({
       baselineInput: { id: 'baseline', score: 10 },

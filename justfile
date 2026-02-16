@@ -24,4 +24,10 @@ flatbuffers-longrun *args:
 lint-longrun *args:
   pnpm node scripts/lint_long_run.ts {{args}}
 
+moon-check:
+  moon -C moonbit check
+
+moon-test:
+  moon -C moonbit test
+
 ci: test check

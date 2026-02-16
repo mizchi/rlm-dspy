@@ -1,0 +1,186 @@
+// Generated using `moon info`, DON'T EDIT IT
+package "mizchi/rlm_dspy_moonbit"
+
+// Values
+pub fn[T] candidate(String, T) -> ImprovementCandidate[T]
+
+pub fn constraint(String, MetricComparator, Double, source? : ConstraintSource) -> ImprovementConstraint
+
+pub fn objective(String, MetricDirection, weight? : Double) -> ImprovementObjective
+
+pub fn policy(Array[ImprovementObjective], constraints? : Array[ImprovementConstraint], min_score_delta? : Double) -> ImprovementPolicy
+
+pub fn program_plan(ProgramMode, Int, Int, stop_when_no_accept? : Bool) -> ProgramPlan
+
+pub fn round_summary(Array[String], Int) -> RoundSummary
+
+pub fn[T] run_improvement_loop(MetricSnapshot, ImprovementPolicy, Array[ImprovementCandidate[T]], (ImprovementCandidate[T], ImprovementContext[T]) -> Result[MetricSnapshot, String], update_baseline_on_accept? : Bool) -> ImprovementReport[T]
+
+pub fn[T, S] run_long_improvement_loop(MetricSnapshot, ImprovementPolicy, S, Int, Bool, (LongRunIterationContext[T, S]) -> Array[ImprovementCandidate[T]], (ImprovementCandidate[T], LongRunIterationContext[T, S]) -> Result[MetricSnapshot, String], (ImprovementResult[T], S) -> S) -> LongRunImprovementReport[T, S]
+
+pub fn[TPool, T, S] run_program(ProgramPlan, MetricSnapshot, ImprovementPolicy, Array[TPool], S, (TPool) -> ImprovementCandidate[T], (ImprovementCandidate[T], LongRunIterationContext[T, S]) -> Result[MetricSnapshot, String], (ImprovementResult[T], S) -> S, (Map[String, Double]) -> String) -> ProgramResult[T, S]
+
+pub fn score_snapshot(MetricSnapshot, ImprovementPolicy) -> Double
+
+pub fn[T, U] select_untried_candidates(Array[T], Array[RoundSummary], Int, (T) -> ImprovementCandidate[U]) -> Array[ImprovementCandidate[U]]
+
+pub fn snapshot(Map[String, Double], gates? : Map[String, Bool]) -> MetricSnapshot
+
+// Errors
+
+// Types and methods
+pub enum ConstraintSource {
+  Absolute
+  Delta
+  Ratio
+  DeltaRatio
+}
+pub fn ConstraintSource::absolute() -> Self
+pub fn ConstraintSource::delta() -> Self
+pub fn ConstraintSource::delta_ratio() -> Self
+pub fn ConstraintSource::ratio() -> Self
+
+pub struct ImprovementCandidate[T] {
+  id : String
+  input : T
+}
+pub fn[T] ImprovementCandidate::id(Self[T]) -> String
+pub fn[T] ImprovementCandidate::input(Self[T]) -> T
+
+pub struct ImprovementConstraint {
+  key : String
+  comparator : MetricComparator
+  value : Double
+  source : ConstraintSource
+}
+
+pub struct ImprovementContext[T] {
+  baseline : MetricSnapshot
+  baseline_score : Double
+  accepted : Array[ImprovementResult[T]]
+  index : Int
+}
+
+pub struct ImprovementObjective {
+  key : String
+  direction : MetricDirection
+  weight : Double
+}
+
+pub struct ImprovementPolicy {
+  objectives : Array[ImprovementObjective]
+  constraints : Array[ImprovementConstraint]
+  min_score_delta : Double
+}
+
+pub struct ImprovementReport[T] {
+  policy : ImprovementPolicy
+  baseline : MetricSnapshot
+  baseline_score : Double
+  results : Array[ImprovementResult[T]]
+  best_accepted : ImprovementResult[T]?
+}
+pub fn[T] ImprovementReport::best_accepted(Self[T]) -> ImprovementResult[T]?
+pub fn[T] ImprovementReport::results(Self[T]) -> Array[ImprovementResult[T]]
+
+pub struct ImprovementResult[T] {
+  candidate : ImprovementCandidate[T]
+  accepted : Bool
+  reasons : Array[String]
+  snapshot : MetricSnapshot?
+  score : Double?
+  score_delta : Double?
+  error : String?
+}
+pub fn[T] ImprovementResult::is_accepted(Self[T]) -> Bool
+pub fn[T] ImprovementResult::reasons(Self[T]) -> Array[String]
+pub fn[T] ImprovementResult::score(Self[T]) -> Double?
+pub fn[T] ImprovementResult::snapshot(Self[T]) -> MetricSnapshot?
+
+pub struct LongRunImprovementReport[T, S] {
+  rounds : Array[ImprovementReport[T]]
+  accepted_history : Array[ImprovementResult[T]]
+  final_baseline : MetricSnapshot
+  final_baseline_score : Double
+  final_state : S
+}
+pub fn[T, S] LongRunImprovementReport::accepted_history_length(Self[T, S]) -> Int
+pub fn[T, S] LongRunImprovementReport::final_baseline(Self[T, S]) -> MetricSnapshot
+
+pub struct LongRunIterationContext[T, S] {
+  iteration : Int
+  state : S
+  baseline : MetricSnapshot
+  baseline_score : Double
+  rounds : Array[ImprovementReport[T]]
+  accepted_history : Array[ImprovementResult[T]]
+}
+pub fn[T, S] LongRunIterationContext::iteration(Self[T, S]) -> Int
+
+pub enum MetricComparator {
+  Lt
+  Lte
+  Gt
+  Gte
+  Eq
+}
+pub fn MetricComparator::eq() -> Self
+pub fn MetricComparator::gt() -> Self
+pub fn MetricComparator::gte() -> Self
+pub fn MetricComparator::lt() -> Self
+pub fn MetricComparator::lte() -> Self
+
+pub enum MetricDirection {
+  Maximize
+  Minimize
+}
+pub fn MetricDirection::maximize() -> Self
+pub fn MetricDirection::minimize() -> Self
+
+pub struct MetricSnapshot {
+  metrics : Map[String, Double]
+  gates : Map[String, Bool]
+}
+pub fn MetricSnapshot::gate(Self, String) -> Bool?
+pub fn MetricSnapshot::metric(Self, String) -> Double?
+
+pub enum ProgramMode {
+  Single
+  LongRun
+}
+pub fn ProgramMode::long_run() -> Self
+pub fn ProgramMode::single() -> Self
+
+pub struct ProgramPlan {
+  mode : ProgramMode
+  candidate_limit : Int
+  max_iterations : Int
+  stop_when_no_accept : Bool
+}
+
+pub struct ProgramResult[T, S] {
+  plan : ProgramPlan
+  run : ProgramRun[T, S]
+  logs : Array[String]
+}
+pub fn[T, S] ProgramResult::is_long_run(Self[T, S]) -> Bool
+pub fn[T, S] ProgramResult::is_single(Self[T, S]) -> Bool
+pub fn[T, S] ProgramResult::logs(Self[T, S]) -> Array[String]
+pub fn[T, S] ProgramResult::long_run(Self[T, S]) -> LongRunImprovementReport[T, S]?
+pub fn[T, S] ProgramResult::plan(Self[T, S]) -> ProgramPlan
+pub fn[T, S] ProgramResult::single(Self[T, S]) -> ImprovementReport[T]?
+
+pub enum ProgramRun[T, S] {
+  SingleRun(ImprovementReport[T])
+  LongRunRun(LongRunImprovementReport[T, S])
+}
+
+pub struct RoundSummary {
+  result_ids : Array[String]
+  accepted_count : Int
+}
+
+// Type aliases
+
+// Traits
+

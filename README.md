@@ -7,6 +7,7 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
 - index: `docs/LIBRARY_GUIDE.md`
 - 日本語: `docs/LIBRARY_GUIDE.ja.md`
 - English: `docs/LIBRARY_GUIDE.en.md`
+- semantics: `docs/SEMANTICS.ja.md`
 
 ## 目的
 
@@ -279,6 +280,13 @@ pnpm lint:longrun -- \
 pnpm install
 pnpm test
 pnpm check
+```
+
+MoonBit 版（`moonbit/`）:
+
+```bash
+moon -C moonbit check
+moon -C moonbit test
 ```
 
 ## 評価実行

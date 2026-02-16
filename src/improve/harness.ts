@@ -15,6 +15,10 @@ export interface SelectUntriedCandidatesArgs<TPool, TInput> {
 export const selectUntriedCandidates = <TPool, TInput>(
   args: SelectUntriedCandidatesArgs<TPool, TInput>,
 ): ImprovementCandidate<TInput>[] => {
+  if (args.candidateLimit <= 0) {
+    return [];
+  }
+
   const tried = new Set<string>();
   for (const round of args.rounds) {
     for (const row of round.results) {
