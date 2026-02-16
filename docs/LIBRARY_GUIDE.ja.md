@@ -70,6 +70,9 @@ console.log(out.trace.slice(-5));
 - 評価支援:
   - `buildProfileRLMOptions('pure' | 'hybrid')`
   - `evaluateCases`
+- 指標駆動改善:
+  - `runImprovementLoop`
+  - `scoreSnapshot`
 
 ## 5. 何が得意か
 
@@ -152,3 +155,50 @@ console.log(JSON.stringify(out.trace.slice(-10), null, 2));
 - 本実装は RLM の実用プロトタイプであり、一般生成タスクで常に強いわけではない
 - `chunk_tokens` は近似（単語分割ベース）で、モデル厳密トークン数ではない
 - MCP連携は `DocStore` 抽象で対応可能だが、実際のMCPサーバ実装は利用者側で用意が必要
+
+## 11. 実指標での改善ループ（refactor / lint 一般化）
+
+`runImprovementLoop` は、候補ごとのメトリクスを採点して採用可否を返す共通ハーネスです。
+
+- `objectives`: 最適化したい指標（`minimize` / `maximize`）
+- `constraints`: 破ってはいけない制約（例: `testFailures == 0`）
+- `minScoreDelta`: 採用に必要な最小改善量
+
+```ts
+import {
+  runImprovementLoop,
+  type ImprovementPolicy,
+  type MetricSnapshot,
+} from './src/index.ts';
+
+const policy: ImprovementPolicy = {
+  objectives: [
+    { key: 'latencyP95', direction: 'minimize', weight: 1 },
+    { key: 'throughput', direction: 'maximize', weight: 0.2 },
+    { key: 'lintErrors', direction: 'minimize', weight: 2 },
+  ],
+  constraints: [{ key: 'testFailures', comparator: 'eq', value: 0 }],
+  minScoreDelta: 1,
+};
+
+const baseline: MetricSnapshot = {
+  metrics: {
+    latencyP95: 120,
+    throughput: 100,
+    lintErrors: 80,
+    testFailures: 0,
+  },
+};
+
+const report = await runImprovementLoop({
+  baseline,
+  policy,
+  candidates: [{ id: 'cand-a', input: '...' }],
+  evaluate: async (candidate) => {
+    // 実際の benchmark/lint/test を走らせて数値化する
+    return { metrics: await collectMetrics(candidate) };
+  },
+});
+
+console.log(report.bestAccepted?.candidate.id);
+```

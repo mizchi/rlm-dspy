@@ -51,3 +51,18 @@ export {
   parseRLMProfile,
   type RLMProfile,
 } from './eval/profile.ts';
+
+export type {
+  ImprovementCandidate,
+  ImprovementConstraint,
+  ImprovementContext,
+  ImprovementObjective,
+  ImprovementPolicy,
+  ImprovementReport,
+  ImprovementResult,
+  MetricComparator,
+  MetricDirection,
+  MetricSnapshot,
+  RunImprovementLoopArgs,
+} from './improve/index.ts';
+export { runImprovementLoop, scoreSnapshot } from './improve/index.ts';

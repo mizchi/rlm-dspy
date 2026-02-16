@@ -91,6 +91,54 @@ RLM (Recursive Language Models) の TypeScript 仮実装です。
 - 追加設計が必要:
   - 自由記述生成・高い推論一貫性が必要なタスク
 
+## 指標駆動の改善ループ（追加）
+
+`runImprovementLoop` を使うと、次のようなタスクを同じパターンで扱えます。
+
+- 実ベンチ指標を使ったリファクタリング候補の比較
+- 大規模 lint 修正候補の採用/棄却（テスト失敗を制約でブロック）
+
+```ts
+import {
+  runImprovementLoop,
+  type ImprovementPolicy,
+  type MetricSnapshot,
+} from './src/index.ts';
+
+const policy: ImprovementPolicy = {
+  objectives: [
+    { key: 'latencyP95', direction: 'minimize', weight: 1 },
+    { key: 'throughput', direction: 'maximize', weight: 0.2 },
+    { key: 'lintErrors', direction: 'minimize', weight: 2 },
+  ],
+  constraints: [{ key: 'testFailures', comparator: 'eq', value: 0 }],
+  minScoreDelta: 1,
+};
+
+const baseline: MetricSnapshot = {
+  metrics: {
+    latencyP95: 120,
+    throughput: 100,
+    lintErrors: 80,
+    testFailures: 0,
+  },
+};
+
+const report = await runImprovementLoop({
+  baseline,
+  policy,
+  candidates: [{ id: 'cand-a', input: '...' }, { id: 'cand-b', input: '...' }],
+  evaluate: async (candidate) => {
+    // ここで実際に benchmark/lint/test を実行して metrics を返す
+    return {
+      metrics: await collectMetricsForCandidate(candidate),
+    };
+  },
+});
+
+console.log(report.bestAccepted?.candidate.id);
+```
+
 ## セットアップ
 
 ```bash

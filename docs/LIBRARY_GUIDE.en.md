@@ -70,6 +70,9 @@ From `src/index.ts`:
 - Evaluation helpers:
   - `buildProfileRLMOptions('pure' | 'hybrid')`
   - `evaluateCases`
+- Metric-driven improvement:
+  - `runImprovementLoop`
+  - `scoreSnapshot`
 
 ## 5. What it is good at
 
@@ -152,3 +155,50 @@ console.log(JSON.stringify(out.trace.slice(-10), null, 2));
 - This is a practical RLM prototype, not a fully general text generation framework.
 - `chunk_tokens` is approximate (word-based), not model-exact token counting.
 - MCP integration is abstracted via `DocStore`, but the real MCP server/client wiring is up to the user.
+
+## 11. Metric-driven improvement loop (refactor / lint generalization)
+
+`runImprovementLoop` is a shared harness that scores candidate changes and decides accept/reject.
+
+- `objectives`: metrics to optimize (`minimize` / `maximize`)
+- `constraints`: hard gates that must hold (for example `testFailures == 0`)
+- `minScoreDelta`: minimum improvement required for acceptance
+
+```ts
+import {
+  runImprovementLoop,
+  type ImprovementPolicy,
+  type MetricSnapshot,
+} from './src/index.ts';
+
+const policy: ImprovementPolicy = {
+  objectives: [
+    { key: 'latencyP95', direction: 'minimize', weight: 1 },
+    { key: 'throughput', direction: 'maximize', weight: 0.2 },
+    { key: 'lintErrors', direction: 'minimize', weight: 2 },
+  ],
+  constraints: [{ key: 'testFailures', comparator: 'eq', value: 0 }],
+  minScoreDelta: 1,
+};
+
+const baseline: MetricSnapshot = {
+  metrics: {
+    latencyP95: 120,
+    throughput: 100,
+    lintErrors: 80,
+    testFailures: 0,
+  },
+};
+
+const report = await runImprovementLoop({
+  baseline,
+  policy,
+  candidates: [{ id: 'cand-a', input: '...' }],
+  evaluate: async (candidate) => {
+    // Run benchmark/lint/test and convert outputs into numeric metrics
+    return { metrics: await collectMetrics(candidate) };
+  },
+});
+
+console.log(report.bestAccepted?.candidate.id);
+```
